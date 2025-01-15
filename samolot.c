@@ -1,15 +1,9 @@
-#include "samolot.h"
 #include <stdio.h>
-#include <pthread.h>
 #include <unistd.h>
-
-//Deklaracja zmiennych globalnych extern z pliku głoównego symulacji
-extern pthread_mutex_t mutex; 
-extern int capacity; // pojemność samolotu obecnie  
-extern int P;  // pojemność samolotu ogólnie
+#include "samolot.h"
 
 void* samolot_func(void* arg){
-    print("Start watku samolotu. Pojemnosc = %d\n", capacity);
+    printf("Start watku samolotu. Pojemnosc = %d\n", capacity);
 
     //Jeżeli capacity == 0, to wszystkie miejsca są zapełnione
 
