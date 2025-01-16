@@ -12,15 +12,26 @@ void* samolot_func(void* arg){
         sleep(1);
 
         pthread_mutex_lock(&mutex);
+
+        //czy samolot jest zapełniony?
         if(capacity == 0)
         {
             pthread_mutex_unlock(&mutex);
+            printf("Start samolotu! (wszystkie %d miejsc zajętch)\n", P);
+            break;
+        }
+        
+
+        //czy wszyscy psażerowie skończyli odprawę?
+        if (licznik_pasazer == N)
+        {
+            pthread_mutex_unlock(&mutex);
+            printf("Start samolotu! (Pozostalo %d wolnych miejsc)\n", capacity);
             break;
         }
 
         pthread_mutex_unlock(&mutex);
     }
 
-    printf("Start samolotu! (Wszystkie %d miejsca zajete)", P);
     return NULL;
 }
