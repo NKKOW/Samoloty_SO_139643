@@ -3,6 +3,7 @@
 
 #include <pthread.h>
 #include <semaphore.h>
+#include "kontrola.h"
 
 extern pthread_mutex_t mutex;
 extern int capacity; // liczba wolnych miejsc

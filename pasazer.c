@@ -36,6 +36,13 @@ void* pasazer_func(void* arg){
         sem_post(&bagaz_wagaSem);
     }
 
+
+    //Przypisywanie płci pasażera
+    char plec = ((rand() % 2) == 0) ? 'K' : 'M';
+    printf("Pasazer %ld przechodzi do kontroli bezpieczenstwa (plec = %c)\n", id, plec);
+    //Pasażer przechodzi kontrolę
+    kontrola_bezpieczenstwa(id, plec); 
+
     //Pętla sprawdzająca liczbę wolnych miejsc
     pthread_mutex_lock(&mutex);
     if (capacity > 0 )
@@ -47,6 +54,7 @@ void* pasazer_func(void* arg){
     {
         printf("Pasazer %ld nie wsiadl. Samolot zapelniony\n", id);
     }
+    licznik_pasazer++;
     pthread_mutex_unlock(&mutex);
     return NULL;
 

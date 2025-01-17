@@ -6,6 +6,7 @@
 
 #include "samolot.h"
 #include "pasazer.h"
+#include "kontrola.h"
 
 int P = 5; //pojemność samolotu
 int N = 8; // liczba pasażerów
