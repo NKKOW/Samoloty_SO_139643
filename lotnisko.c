@@ -8,13 +8,14 @@
 #include "pasazer.h"
 #include "kontrola.h"
 
-int P = 5; //pojemność samolotu
-int N = 8; // liczba pasażerów
+int P = 10; //pojemność samolotu
+int N = 10; // liczba pasażerów
 int M = 10; //limit wagi bagażu
 int capacity; // liczba wolnych miejsc
 int licznik_pasazer = 0; //licznik pasażerów w kontroli
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t samolotCond = PTHREAD_COND_INITIALIZER;
 sem_t bagaz_wagaSem;
 
 int main(){

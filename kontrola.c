@@ -49,12 +49,13 @@ void kontrola_bezpieczenstwa(long pasazer_id, char plec){
             sleep(kontrola_checktime);
             printf("Pasazer %ld (plec %c) zajal stanowisko %d\n", pasazer_id, plec, wolneStanowisko);
             //Sprawdzanie czy odrzuci pasażera z powodu niebezpiecznego przedmiotu:
-            int niebezpieczny = (rand() % 10 == 0); //10% szans na przedmiot zabroniony
+            int niebezpieczny = (rand() % 30 == 0); //10% szans na przedmiot zabroniony
             if (niebezpieczny) {
                 // Odrzucenie
                 pthread_mutex_lock(&stanowsikoMutex);
                 stanowiska[wolneStanowisko].occupied--;
-                if (stanowiska[wolneStanowisko].occupied == 0) {
+                if (stanowiska[wolneStanowisko].occupied == 0) 
+                {
                     stanowiska[wolneStanowisko].plec = '\0';
                 }
                 pthread_cond_broadcast(&stanowiskoCond);
@@ -63,6 +64,10 @@ void kontrola_bezpieczenstwa(long pasazer_id, char plec){
                 // Inkrementacja licznika
                 pthread_mutex_lock(&mutex);
                 licznik_pasazer++;
+                if (licznik_pasazer == N || capacity == 0) 
+                {
+                    pthread_cond_signal(&samolotCond);
+                }
                 pthread_mutex_unlock(&mutex);
 
                 printf("Pasażer %ld odrzucony w kontroli bezpieczeństwa!\n", pasazer_id);
