@@ -1,30 +1,81 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
+#include <signal.h>
+#include "global.h"
 #include "samolot.h"
 
-void* samolot_func(void* arg){
-    printf("Start watku samolotu. Pojemnosc = %d\n", capacity);
-    
-    pthread_mutex_lock(&mutex);
-    //Jeżeli capacity == 0, to wszystkie miejsca są zapełnione
+int msg_queue_id;
+volatile sig_atomic_t keep_running = 1;
 
-    while (capacity != 0 && licznik_pasazer != N)
+// Funkcja obsługi sygnału SIGINT
+void sigint_handler(int sig) 
+{
+    printf("\nSamolot %d: Otrzymano SIGINT, zakończanie lotu...\n", getpid());
+    keep_running = 0;
+}
+
+void notify_dyspozytor(long msg_type)
+{
+    wiadomosc_buf msg;
+    msg.mtype = msg_type;
+    msg.samolot_pid = getpid();
+
+    if(msgsnd(msg_queue_id, &msg, sizeof(pid_t), 0) == -1)
     {
-        pthread_cond_wait(&samolotCond, &mutex);
+        perror("Blad msgsnd samolot\n");
+        exit(EXIT_FAILURE);
     }
-        
-    //czy samolot jest zapełniony? czy pasażerowie skończyli odprawę?
-    if(capacity == 0)
+
+    if (msg_type == MSG_SAMOLOT_GOTOWY)
     {
-        printf("Start samolotu! (wszystkie %d miejsc zajętch)\n", P);
+        printf("Samolot PID = %d powiadamia dyspozytora o gotowosci.\n", getpid());
     }
-    else if (licznik_pasazer == N)
+    else if(msg_type == MSG_SAMOLOT_POWROT)
     {
-        printf("Start samolotu! (Pozostalo %d wolnych miejsc)\n", capacity);
+        printf("Samolot PID = %d powiadamia dyspozytora o powrocie na lotnisko.\n", getpid());
+    }
+}
+
+void simulate_flight_cycle()
+{
+    printf("Samolot %d: Startuje..!\n", getpid());
+
+    msg_queue_id = msgget(MSG_QUEUE_KEY, 0666);
+    if (msg_queue_id == -1)
+    {
+        perror("Blad msgget samolot\n");
+        exit(EXIT_FAILURE);
     }
 
-    pthread_mutex_unlock(&mutex);
+    signal(SIGINT, sigint_handler);
 
+    notify_dyspozytor(MSG_SAMOLOT_GOTOWY);
+    sleep(5);
 
-    return NULL;
+    if (!keep_running) 
+    {
+        printf("Samolot %d: Lot przerwany przed odlotem.\n", getpid());
+        return;
+    }
+
+    printf("Samolot %d: Odleciał.\n", getpid());
+    sleep(10);
+
+    if (!keep_running)
+    {
+        printf("Samolot %d: Lot przerwany przed odlotem.\n", getpid());
+        return;
+    }
+
+    printf("Samolot %d: Wraca na lotnisko.\n", getpid());
+
+    notify_dyspozytor(MSG_SAMOLOT_POWROT);
+    printf("Samolot %d: Koniec lotu.\n", getpid());
+}
+
+int main() 
+{
+    simulate_flight_cycle();
+    return 0;
 }

@@ -1,53 +1,50 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <pthread.h>
+#include <signal.h>
+#include <sys/wait.h>
 #include <unistd.h>
-#include <semaphore.h>
+#include "dyspozytor.h"
+#include "global.h"
 
-#include "samolot.h"
-#include "pasazer.h"
-#include "kontrola.h"
+// Funkcja obsługi sygnału SIGINT
+void sigint_handler(int sig) 
+{
+    printf("\nLotnisko: Otrzymano SIGINT, czyszczenie zasobów...\n");
+    exit(0);
+}
 
-int P = 10; //pojemność samolotu
-int N = 10; // liczba pasażerów
-int M = 10; //limit wagi bagażu
-int capacity; // liczba wolnych miejsc
-int licznik_pasazer = 0; //licznik pasażerów w kontroli
+int main() {
+    printf("Lotnisko: Startuje...\n");
 
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t samolotCond = PTHREAD_COND_INITIALIZER;
-sem_t bagaz_wagaSem;
+    // Rejestracja obsługi sygnału SIGINT
+    signal(SIGINT, sigint_handler);
 
-int main(){
-
-    srand(time(NULL));
-
-    capacity = P;
-
-    //Inicjalizacja semafora do sprawdzania bagażu
-    sem_init(&bagaz_wagaSem, 0, 3);
-
-    //Tworzenie wątku samolotu
-    pthread_t samolot_tid;
-    pthread_create(&samolot_tid, NULL, samolot_func, NULL);
-
-    //Tworzenie wątku pasażerów
-    pthread_t pasazer_tid[N];
-    for (long i = 1; i <= N; i++)
+      // Tworzenie dyspozytora jako osobny proces
+    pid_t dyspozytor_pid = fork();
+    if (dyspozytor_pid < 0) 
     {
-        pthread_create(&pasazer_tid[i - 1], NULL, pasazer_func, (void*) i);
+        perror("Blad fork dla dyspozytora");
+        exit(EXIT_FAILURE);
+    } 
+    else if (dyspozytor_pid == 0) 
+    {
+        execl("./dyspozytor", "dyspozytor", NULL);
+        perror("Blad execl dla dyspozytora");
+        exit(EXIT_FAILURE);
+    } 
+    else 
+    {
+        // Proces lotniska kontynuuje
+        printf("Lotnisko: Uruchomiono dyspozytora o PID %d\n", dyspozytor_pid);
     }
 
-    for (int i = 0; i < N; i++)
+     // Oczekiwanie na zakończenie dyspozytora
+    pid_t pid = waitpid(dyspozytor_pid, NULL, 0);
+    if (pid > 0) 
     {
-        pthread_join(pasazer_tid[i], NULL);
+        printf("Lotnisko: Dyspozytor o PID %d zakończył działanie.\n", pid);
     }
 
-    pthread_join(samolot_tid, NULL);
-
-    sem_destroy(&bagaz_wagaSem);
-
-    printf("Koniec symulacji. Pozostało %d wolnych miejsc.Liczba pasażerów na pokładzie = %d.\n",capacity, P - capacity);
-
+    printf("Lotnisko: Zakończył działanie.\n");
     return 0;
 }
