@@ -7,9 +7,20 @@
 #include <stdbool.h>
 
 //Stałe
-#define MAX_SAMOLOT 5  //Ogranicznik maksymalnej liczby samolotów
-#define MAX_PASAZER 100  //Ogranicznik liczby pasażerów
-#define MSG_QUEUE_KEY 1234 //klucz do kolejki komunikatów
+#define MAX_SAMOLOT 15  //Ogranicznik maksymalnej liczby samolotów
+#define MIEJSCA_SAMOLOT 10 //ogranicznik liczby miejsc w samolocie
+#define MAX_PASAZER 300  //Ogranicznik liczby pasażerów
+//#define MSG_QUEUE_KEY 1234 //klucz do kolejki komunikatów
+
+//Pliki ftok()
+#define MSG_QUEUE_PATH "lotnisko.c"  //ścieżka do koleki komunikatów
+#define SHM_PATH "shared_memory.c"  //ścieżka dla pamięci wspóldzielonej
+#define SEM_PATH "shared_memory.c"  //Ścieżka dla semafora
+
+//Identyfikatory projektu dla ftok()
+#define MSG_QUEUE_PROJ 'M'  //identyfikator projektu dla kolejki komunikatów
+#define SHM_PROJ 'S'  //Identyfikator dla pamięci wspóldzielonej
+#define SEM_PROJ 'E'  //Identyfikator projektu dla semafora
 
 //Rodzaj wiadomości
 typedef enum {

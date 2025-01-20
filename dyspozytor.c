@@ -4,6 +4,7 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include "global.h"
+#include "shared_memory.h"
 #include "dyspozytor.h"
 
 int msg_queue_id;
@@ -19,7 +20,14 @@ void sigint_handler(int sig)
 
 void initialize_message_queue() 
 {
-    msg_queue_id = msgget(MSG_QUEUE_KEY, IPC_CREAT | 0666);
+    key_t msg_key = ftok(MSG_QUEUE_PATH, MSG_QUEUE_PROJ);
+    if (msg_key == -1)
+    {
+        perror("Blad ftok dyspozytor\n");
+        exit(EXIT_FAILURE);
+    }
+
+    msg_queue_id = msgget(msg_key, IPC_CREAT | 0666);
     if (msg_queue_id == -1)
     {
         perror("Blad msgget dyspozytor\n");
@@ -44,6 +52,8 @@ void create_airplanes(int num_samoloty)
         {
             perror("Blad fork dyspozytor\n");
             cleanup_message_queue();
+            shared_memory_cleanup();
+            semaphore_cleanup();
             exit(EXIT_FAILURE);
         }
         else if ( pid == 0)
@@ -69,14 +79,35 @@ void handle_messages()
             continue;
         }
 
+        printf("Dyspozytor: Otrzymano wiadomość typu %ld od samolotu PID %d\n", msg.mtype, msg.samolot_pid);
+
         if (msg.mtype == MSG_SAMOLOT_GOTOWY)
         {
             printf("Dyspozytor: Samolot o PID %d jest gotowy do startu.\n", msg.samolot_pid);
+            if (semaphore_lock() == -1)
+            {
+                perror("Dyspozytor: Blad semaphore_lock | MSG_SAMOLOT_GOTOWY");
+                continue;
+            }
+            shm_ptr -> akt_samoloty += 1;
+            printf("Dyspozytor: Liczba aktywnych samolotów: %d\n", shm_ptr->akt_samoloty);
+            semaphore_unlock();
+            printf("Dyspozytor: Semafor odblokowany.\n");
         }
         else if (msg.mtype == MSG_SAMOLOT_POWROT)
         {
             printf("Dyspozytor: Samolot o PID %d powrócił na lotnisko.\n", msg.samolot_pid);
             powrot_count ++;
+
+            if (semaphore_lock() == -1)
+            {
+                perror("Dyspozytor: Blad semaphore_lock | MSG_SAMOLOT_POWROT");
+                continue;
+            }
+            shm_ptr -> akt_samoloty -= 1;
+            printf("Dyspozytor: Liczba aktywnych samolotów: %d\n", shm_ptr->akt_samoloty);
+            semaphore_unlock();
+            printf("Dyspozytor: Semafor odblokowany.\n");
         }
 
         if (powrot_count >= MAX_SAMOLOT) 
@@ -91,6 +122,19 @@ int main() {
 
     signal(SIGINT, sigint_handler);
 
+    if (shared_memory_init() == -1)
+    {
+        fprintf(stderr, "Dyspozytor: Nie mozna zainicjalizowac pamieci wspoldzielonej.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (semaphore_init() == -1)
+    {
+        fprintf(stderr, "Dyspozytor: Nie mozna zainicjalizowac semafora.\n");
+        shared_memory_cleanup();
+        exit(EXIT_FAILURE);
+    }
+
     initialize_message_queue();
 
     create_airplanes(MAX_SAMOLOT);
@@ -98,6 +142,8 @@ int main() {
     handle_messages();
 
     cleanup_message_queue();
+    shared_memory_cleanup();
+    semaphore_cleanup();
 
     printf("Dyspozytor: Zakończył działanie.\n");
     return 0;
