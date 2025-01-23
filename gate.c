@@ -1,56 +1,61 @@
-#include <stdio.h>
+// gate.c
+
 #include <stdlib.h>
-#include <unistd.h>
-
+#include <stdio.h>
 #include "gate.h"
-#include "odprawa.h"
+#include "global.h"
 
-int gate_init(Gate *gate, int gate_id) 
-{
-    gate->gate_id = gate_id;
-    gate->samolot_pid = -1;
-    if(pthread_mutex_init(&gate->gate_mutex, NULL) != 0) 
-    {
-        perror("gate_init: pthread_mutex_init gate_mutex");
-        return -1;
+Gate* gates = NULL;
+int max_gates = (MAX_SAMOLOT * 2 + 2) / 3;
+
+void gate_init(int num_gates) {
+    gates = (Gate*)malloc(sizeof(Gate) * num_gates);
+    if (!gates) {
+        perror("Blad alokacji dla gates");
+        exit(EXIT_FAILURE);
     }
-
-    return 0;
+    for (int i = 0; i < num_gates; i++) {
+        gates[i].gate_id = i + 1;
+        gates[i].is_occupied = false;
+        gates[i].assigned_samoloty_pid = -1;
+    }
+    max_gates = num_gates;
+    printf("Gate: Zainicjalizowano %d gate'ow.\n", max_gates);
 }
 
-void* gate_thread_func(void *arg) 
-{
-    Gate *gate = (Gate*) arg;
-    char log_msg[256];
-    while(1) 
-    {
-        pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
-        pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
-
-        pthread_mutex_lock(&gate->gate_mutex);
-        if(gate->samolot_pid != -1) 
-        {
-            snprintf(log_msg, sizeof(log_msg), "Gate %d: Obsługuje samolot PID %d.", gate->gate_id, gate->samolot_pid);
-            log_event("gate.log", log_msg);
-
-            pthread_mutex_unlock(&gate->gate_mutex);
-
-            //sleep(5); // Czas obsługi samolotu
-
-            // Zwolnienie zasobów
-            pthread_mutex_lock(&gate->gate_mutex);
-            gate->samolot_pid = -1;
-            pthread_mutex_unlock(&gate->gate_mutex);
-
-            snprintf(log_msg, sizeof(log_msg), "Gate %d: Samolot PID %d zakończył obsługę.", gate->gate_id, gate->samolot_pid);
-            log_event("gate.log", log_msg);
-        } 
-        else 
-        {
-            pthread_mutex_unlock(&gate->gate_mutex);
-            //sleep(1); // Gate jest wolny
+int find_free_gate() {
+    for (int i = 0; i < max_gates; i++) {
+        if (!gates[i].is_occupied) {
+            return i;
         }
     }
-    
-    return NULL;
+    return -1;
+}
+
+void gate_assign(int gate_index, pid_t plane_pid) {
+    gates[gate_index].is_occupied = true;
+    gates[gate_index].assigned_samoloty_pid = plane_pid;
+    printf("Gate: Samolot %d przypisany do gate'a %d.\n",
+           plane_pid, gates[gate_index].gate_id);
+}
+
+void gate_release_by_plane(pid_t plane_pid) {
+    for (int i = 0; i < max_gates; i++) {
+        if (gates[i].assigned_samoloty_pid == plane_pid) {
+            gates[i].is_occupied = false;
+            gates[i].assigned_samoloty_pid = -1;
+            printf("Gate %d: Zwolniony po powrocie samolotu %d.\n",
+                   gates[i].gate_id, plane_pid);
+            return;
+        }
+    }
+    printf("Gate: Nie znaleziono gate dla samolotu %d.\n", plane_pid);
+}
+
+void gate_cleanup() {
+    if (gates) {
+        free(gates);
+        gates = NULL;
+    }
+    printf("Gate: Zasoby gate zwolnione.\n");
 }

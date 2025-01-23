@@ -1,3 +1,5 @@
+// global.h
+
 #ifndef GLOBAL_H
 #define GLOBAL_H
 
@@ -6,33 +8,25 @@
 #include <sys/msg.h>
 #include <stdbool.h>
 
-//Stałe
-#define MAX_SAMOLOT 15  //Ogranicznik maksymalnej liczby samolotów
-#define MIEJSCA_SAMOLOT 10 //ogranicznik liczby miejsc w samolocie
-#define MAX_PASAZER 300  //Ogranicznik liczby pasażerów
-//#define MSG_QUEUE_KEY 1234 //klucz do kolejki komunikatów
+#define MAX_SAMOLOT 500
+#define MIEJSCA_SAMOLOT 10
+#define MAX_PASAZER 300
 
-//Pliki ftok()
-#define MSG_QUEUE_PATH "lotnisko.c"  //ścieżka do koleki komunikatów
-#define SHM_PATH "shared_memory.c"  //ścieżka dla pamięci wspóldzielonej
-#define SEM_PATH "shared_memory.c"  //Ścieżka dla semafora
+#define MSG_QUEUE_PATH "msgqueue.key"
+#define MSG_QUEUE_PROJ 'M'
 
-//Identyfikatory projektu dla ftok()
-#define MSG_QUEUE_PROJ 'M'  //identyfikator projektu dla kolejki komunikatów
-#define SHM_PROJ 'S'  //Identyfikator dla pamięci wspóldzielonej
-#define SEM_PROJ 'E'  //Identyfikator projektu dla semafora
-
-//Rodzaj wiadomości
 typedef enum {
-    MSG_SAMOLOT_GOTOWY = 1, //Gotowość samolotu do odlotu
-    MSG_SAMOLOT_POWROT  //Samolot powrócił na lotnisko
+    MSG_SAMOLOT_GOTOWY = 1,
+    MSG_SAMOLOT_POWROT,
+    MSG_GATE_REQUEST,
+    MSG_GATE_ASSIGN
 } rodzaj_wiadomosc;
 
-//Bufor wiadomości
 typedef struct {
-    long mtype; //typ wiadomości
-    pid_t samolot_pid; //PID samolot
+    long mtype;
+    rodzaj_wiadomosc rodzaj;
+    pid_t samolot_pid;
+    int gate_id;
 } wiadomosc_buf;
 
-
-#endif 
+#endif

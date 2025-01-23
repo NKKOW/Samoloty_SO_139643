@@ -1,7 +1,11 @@
+// samolot.h
+
 #ifndef SAMOLOT_H
 #define SAMOLOT_H
 
-void notify_dyspozytor(long msg_type);
+#include "global.h"
+
+void notify_dyspozytor(rodzaj_wiadomosc msg_type);
 void simulate_flight_cycle();
 
-#endif 
+#endif

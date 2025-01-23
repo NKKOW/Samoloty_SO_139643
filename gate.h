@@ -1,17 +1,24 @@
+// gate.h
+
 #ifndef GATE_H
 #define GATE_H
 
-#include <pthread.h>
-#include "global.h"
+#include <sys/types.h>
+#include <stdbool.h>
 
-// Struktura reprezentująca Gate
 typedef struct {
     int gate_id;
-    pid_t samolot_pid;
-    pthread_mutex_t gate_mutex;
+    bool is_occupied;
+    pid_t assigned_samoloty_pid;
 } Gate;
 
-int gate_init(Gate *gate, int gate_id);
-void* gate_thread_func(void *arg);
+extern Gate* gates;
+extern int max_gates;
 
-#endif 
+void gate_init(int num_gates);
+int find_free_gate();
+void gate_assign(int gate_index, pid_t plane_pid);
+void gate_release_by_plane(pid_t plane_pid);
+void gate_cleanup();
+
+#endif
