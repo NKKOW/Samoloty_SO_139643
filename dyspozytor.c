@@ -1,5 +1,3 @@
-// dyspozytor.c
-
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,6 +5,11 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <errno.h>
+#include <sys/types.h>
+#include <sys/socket.h>   // gniazda
+#include <netinet/in.h>
+#include <string.h>
+
 #include "global.h"
 #include "dyspozytor.h"
 #include "gate.h"
@@ -16,6 +19,9 @@ int msg_queue_id;
 extern int max_gates;
 volatile sig_atomic_t keep_running = 1;
 static PlaneQueue waiting_planes;
+
+// Zmienna globalna do socketu (przykład użycia)
+static int dispatcher_socket_fd = -1;
 
 void remove_existing_message_queue() {
     key_t msg_key = ftok(MSG_QUEUE_PATH, MSG_QUEUE_PROJ);
@@ -35,11 +41,16 @@ void remove_existing_message_queue() {
 }
 
 void sigint_handler(int sig) {
-    printf("\nDyspozytor: SIGINT, konczenie...\n");
+    printf("\nDyspozytor: %d SIGINT, konczenie...\n", sig);
     keep_running = 0;
+    // Zamykamy ewentualny socket
+    if (dispatcher_socket_fd >= 0) {
+        close_dispatcher_socket(dispatcher_socket_fd);
+    }
 }
 
 void sigchld_handler(int sig) {
+    printf("Dyspozytor: Otrzymano sygnał %d (SIGCHLD)\n", sig);
     while (1) {
         int status;
         pid_t pid = waitpid(-1, &status, WNOHANG);
@@ -67,6 +78,41 @@ void cleanup_message_queue() {
     if (msgctl(msg_queue_id, IPC_RMID, NULL) == -1) {
         perror("Blad msgctl dyspozytor");
     }
+}
+
+// Przykładowy socket do nasłuchu
+int setup_dispatcher_socket() {
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) {
+        perror("dispatcher socket()");
+        return -1;
+    }
+    dispatcher_socket_fd = sock;
+
+    // bindowanie do dowolnego portu
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port   = htons(12345);
+    addr.sin_addr.s_addr = INADDR_ANY;
+
+    if (bind(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        perror("dispatcher bind()");
+        close(sock);
+        return -1;
+    }
+    if (listen(sock, 5) < 0) {
+        perror("dispatcher listen()");
+        close(sock);
+        return -1;
+    }
+    printf("Dyspozytor: uruchomiono socket nasluchujacy na porcie 12345.\n");
+    return sock;
+}
+
+void close_dispatcher_socket(int sockfd) {
+    close(sockfd);
+    printf("Dyspozytor: zamknieto socket.\n");
 }
 
 void create_airplanes(int num_samoloty) {
@@ -167,7 +213,6 @@ void handle_messages()
     }
 }
 
-
 int main() {
     printf("Dyspozytor: Start\n");
     struct sigaction sa_int, sa_chld;
@@ -185,14 +230,29 @@ int main() {
         perror("Blad sigaction SIGCHLD");
         exit(EXIT_FAILURE);
     }
+
     remove_existing_message_queue();
     initialize_message_queue();
     queue_init(&waiting_planes);
     gate_init(max_gates);
+
+    // Przykład użycia socketu (opcjonalnie):
+    int sockfd = setup_dispatcher_socket();
+    if (sockfd < 0) {
+        fprintf(stderr, "Dyspozytor: Nie udalo sie utworzyc socketu. Kontynuacja bez socketu.\n");
+    }
+
     create_airplanes(MAX_SAMOLOT);
     handle_messages();
+
     gate_cleanup();
     cleanup_message_queue();
+
+    // zamykamy ewentualnie nasz socket:
+    if (sockfd >= 0) {
+        close_dispatcher_socket(sockfd);
+    }
+
     printf("Dyspozytor: Koniec.\n");
     return 0;
 }

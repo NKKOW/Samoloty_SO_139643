@@ -1,5 +1,3 @@
-// global.h
-
 #ifndef GLOBAL_H
 #define GLOBAL_H
 
@@ -8,9 +6,11 @@
 #include <sys/msg.h>
 #include <stdbool.h>
 
-#define MAX_SAMOLOT 500
-#define MIEJSCA_SAMOLOT 10
-#define MAX_PASAZER 300
+// --------------------------------------------
+// Definicje związane z samolotami i komunikatami
+// --------------------------------------------
+
+#define MAX_SAMOLOT 5
 
 #define MSG_QUEUE_PATH "msgqueue.key"
 #define MSG_QUEUE_PROJ 'M'
@@ -28,5 +28,30 @@ typedef struct {
     pid_t samolot_pid;
     int gate_id;
 } wiadomosc_buf;
+
+// --------------------------------------------
+// Definicje do obsługi pasażerów
+// --------------------------------------------
+
+// Maksymalna waga bagażu
+#define M 10
+// Liczba wszystkich pasażerów
+#define N 150
+// Pojemność schodów pasażerskich
+#define K 10
+
+// Dodatkowy limit, ile razy można kogoś przepuścić
+#define MAX_SKIP 3
+
+// Ile % pasażerów jest VIP (przykładowo 20%).
+#define VIP_PERCENT 20
+
+// --------------------------------------------
+// Segment pamięci dzielonej – np. do liczenia pasażerów
+// --------------------------------------------
+typedef struct {
+    int total_boarded;        // liczba faktycznie wsiedzionych
+    int total_rejected;       // liczba odrzuconych
+} SharedData;
 
 #endif

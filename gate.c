@@ -1,5 +1,3 @@
-// gate.c
-
 #include <stdlib.h>
 #include <stdio.h>
 #include "gate.h"

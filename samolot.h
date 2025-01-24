@@ -1,5 +1,3 @@
-// samolot.h
-
 #ifndef SAMOLOT_H
 #define SAMOLOT_H
 
