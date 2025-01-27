@@ -9,7 +9,7 @@ int max_gates = (MAX_SAMOLOT * 2 + 2) / 3;
 void gate_init(int num_gates) {
     gates = (Gate*)malloc(sizeof(Gate) * num_gates);
     if (!gates) {
-        perror("Blad alokacji dla gates");
+        perror("Gate: blad alokacji dla gates");
         exit(EXIT_FAILURE);
     }
     for (int i = 0; i < num_gates; i++) {

@@ -4,6 +4,7 @@
 #include <sys/types.h>
 #include <stdbool.h>
 
+//Struktura bramek
 typedef struct {
     int gate_id;
     bool is_occupied;
@@ -13,6 +14,7 @@ typedef struct {
 extern Gate* gates;
 extern int max_gates;
 
+//Deklaracje funkcji obsługi bramek
 void gate_init(int num_gates);
 int find_free_gate();
 void gate_assign(int gate_index, pid_t plane_pid);
