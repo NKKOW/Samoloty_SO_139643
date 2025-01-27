@@ -12,7 +12,7 @@
 // Funkcja wątku pasażera
 void* pasazer_func(void* arg){
     long pasazerNum = (long) arg; // Numer pasażera
-    unsigned long tid = (unsigned long) pthread_self(); // ID wątku
+    // unsigned long tid = (unsigned long) pthread_self(); // Usunięto: niepotrzebny TID
 
     // Inicjalizacja lokalnego seed do rand_r
     unsigned int seed = time(NULL) ^ pthread_self();
@@ -27,13 +27,13 @@ void* pasazer_func(void* arg){
     int pasazer_bagaz = bagaz_waga();
     sem_wait(&bagaz_wagaSem);
     int bagaz_checktime = rand_r(&seed) % 3;
-    printf("[P] Pasazer %ld [TID=%lu] -> kontrola bagażu (VIP=%d). Waga=%d\n",
-           pasazerNum, tid, isVIP, pasazer_bagaz);
+    printf("[P] Pasażer %ld -> kontrola bagażu (VIP=%d). Waga=%d\n",
+           pasazerNum, isVIP, pasazer_bagaz); // Zmieniono: usunięto TID
     sleep(bagaz_checktime);
 
     if (pasazer_bagaz > M) {
-        printf("[P] Pasazer %ld [TID=%lu] ODRZUCONY (bagaż=%d > %d)\n",
-               pasazerNum, tid, pasazer_bagaz, M);
+        printf("[P] Pasażer %ld ODRZUCONY (bagaż=%d > %d)\n",
+               pasazerNum, pasazer_bagaz, M); // Zmieniono: usunięto TID
         sem_post(&bagaz_wagaSem);
 
         pthread_mutex_lock(&mutex);
@@ -45,15 +45,15 @@ void* pasazer_func(void* arg){
 
         return NULL;
     } else {
-        printf("[P] Pasazer %ld [TID=%lu] bagaż OK (%d <= %d)\n",
-               pasazerNum, tid, pasazer_bagaz, M);
+        printf("[P] Pasażer %ld bagaż OK (%d <= %d)\n",
+               pasazerNum, pasazer_bagaz, M); // Zmieniono: usunięto TID
         sem_post(&bagaz_wagaSem);
     }
 
     // Ustalenie płci pasażera (np. do rozdziału w stanowiskach)
     char plec = ((rand_r(&seed) % 2) == 0) ? 'K' : 'M';
-    printf("[P] Pasazer %ld [TID=%lu] -> kontrola bezpieczeństwa, plec=%c\n",
-           pasazerNum, tid, plec);
+    printf("[P] Pasażer %ld -> kontrola bezpieczeństwa, płeć=%c\n",
+           pasazerNum, plec); // Zmieniono: usunięto TID
 
     // Osobna kontrola:
     if (isVIP) {
@@ -64,7 +64,7 @@ void* pasazer_func(void* arg){
 
     // Sprawdzenie, czy boarding został zatrzymany
     if (stopBoarding) {
-        printf("[P] Pasazer %ld [TID=%lu] BOARDING ZATRZYMANY.\n", pasazerNum, tid);
+        printf("[P] Pasażer %ld BOARDING ZATRZYMANY.\n", pasazerNum); // Zmieniono: usunięto TID
         pthread_mutex_lock(&mutex);
         licznik_pasazer++;
         if (licznik_pasazer == N || (capacityNormal == 0 && capacityVip == 0)) {
@@ -79,21 +79,45 @@ void* pasazer_func(void* arg){
 
     if (isVIP) {
         // VIP-y korzystają z stairsSemVip
-        printf("[P] Pasazer %ld [TID=%lu] (VIP) próbuje wejść na schody VIP.\n", pasazerNum, tid);
+        printf("[P] Pasażer %ld (VIP) próbuje wejść na schody VIP.\n", pasazerNum); // Zmieniono: usunięto TID
         sem_wait(&stairsSemVip);
-        printf("[P] Pasazer %ld [TID=%lu] (VIP) przechodzi przez schody VIP.\n", pasazerNum, tid);
+        printf("[P] Pasażer %ld (VIP) przechodzi przez schody VIP.\n", pasazerNum); // Zmieniono: usunięto TID
+        
+        // Aktualizacja liczby pasażerów na schodach
+        pthread_mutex_lock(&stairsMutex);
+        passengers_on_stairs++;
+        pthread_mutex_unlock(&stairsMutex);
+
         // Symulacja przejścia przez schody
         sleep(1);
-        printf("[P] Pasazer %ld [TID=%lu] (VIP) dotarł do samolotu.\n", pasazerNum, tid);
+
+        pthread_mutex_lock(&stairsMutex);
+        passengers_on_stairs--;
+        pthread_cond_broadcast(&stairsCond);
+        pthread_mutex_unlock(&stairsMutex);
+
+        printf("[P] Pasażer %ld (VIP) dotarł do samolotu.\n", pasazerNum); // Zmieniono: usunięto TID
         sem_post(&stairsSemVip);
     } else {
         // Pasażer zwykły korzysta z stairsSemNormal
-        printf("[P] Pasazer %ld [TID=%lu] (Zwykły) próbuje wejść na schody normalne.\n", pasazerNum, tid);
+        printf("[P] Pasażer %ld (Zwykły) próbuje wejść na schody normalne.\n", pasazerNum); // Zmieniono: usunięto TID
         sem_wait(&stairsSemNormal);
-        printf("[P] Pasazer %ld [TID=%lu] (Zwykły) przechodzi przez schody normalne.\n", pasazerNum, tid);
+        printf("[P] Pasażer %ld (Zwykły) przechodzi przez schody normalne.\n", pasazerNum); // Zmieniono: usunięto TID
+        
+        // Aktualizacja liczby pasażerów na schodach
+        pthread_mutex_lock(&stairsMutex);
+        passengers_on_stairs++;
+        pthread_mutex_unlock(&stairsMutex);
+
         // Symulacja przejścia przez schody
         sleep(1);
-        printf("[P] Pasazer %ld [TID=%lu] (Zwykły) dotarł do samolotu.\n", pasazerNum, tid);
+
+        pthread_mutex_lock(&stairsMutex);
+        passengers_on_stairs--;
+        pthread_cond_broadcast(&stairsCond);
+        pthread_mutex_unlock(&stairsMutex);
+
+        printf("[P] Pasażer %ld (Zwykły) dotarł do samolotu.\n", pasazerNum); // Zmieniono: usunięto TID
         sem_post(&stairsSemNormal);
     }
 
@@ -105,21 +129,21 @@ void* pasazer_func(void* arg){
         // VIP-y korzystają z capacityVip
         if (capacityVip > 0) {
             capacityVip--;
-            printf("[P] Pasazer %ld [TID=%lu] WSZEDŁ do samolotu (VIP) PID=%d. Pozostało %d VIP miejsc.\n",
-                   pasazerNum, tid, airplane_pid, capacityVip);
+            printf("[P] Pasażer %ld WSZEDŁ do samolotu (VIP) PID=%d. Pozostało %d VIP miejsc.\n",
+                   pasazerNum, airplane_pid, capacityVip); // Zmieniono: usunięto TID
         } else {
-            printf("[P] Pasazer %ld [TID=%lu] NIE WSZEDŁ (brak VIP miejsc) PID=%d\n",
-                   pasazerNum, tid, airplane_pid);
+            printf("[P] Pasażer %ld NIE WSZEDŁ (brak VIP miejsc) PID=%d\n",
+                   pasazerNum, airplane_pid); // Zmieniono: usunięto TID
         }
     } else {
         // Pasażer zwykły
         if (capacityNormal > 0) {
             capacityNormal--;
-            printf("[P] Pasazer %ld [TID=%lu] WSZEDŁ do samolotu (Zwykły) PID=%d. Pozostało %d zwykłych miejsc.\n",
-                   pasazerNum, tid, airplane_pid, capacityNormal);
+            printf("[P] Pasażer %ld WSZEDŁ do samolotu (Zwykły) PID=%d. Pozostało %d zwykłych miejsc.\n",
+                   pasazerNum, airplane_pid, capacityNormal); // Zmieniono: usunięto TID
         } else {
-            printf("[P] Pasazer %ld [TID=%lu] NIE WSZEDŁ (brak zwykłych miejsc) PID=%d\n",
-                   pasazerNum, tid, airplane_pid);
+            printf("[P] Pasażer %ld NIE WSZEDŁ (brak zwykłych miejsc) PID=%d\n",
+                   pasazerNum, airplane_pid); // Zmieniono: usunięto TID
         }
     }
 

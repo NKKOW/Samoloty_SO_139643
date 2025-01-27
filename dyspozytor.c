@@ -1,5 +1,3 @@
-// dyspozytor.c
-
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,6 +9,8 @@
 #include <sys/socket.h>   // Gniazda
 #include <netinet/in.h>
 #include <string.h>
+#include <pthread.h>
+#include <time.h>
 
 #include "global.h"
 #include "dyspozytor.h"
@@ -92,6 +92,7 @@ void sigchld_handler(int sig) {
     }
 }
 
+// Funkcja do usuwania istniejącej kolejki komunikatów
 void remove_existing_message_queue() {
     key_t msg_key = ftok(MSG_QUEUE_PATH, MSG_QUEUE_PROJ);
     if (msg_key == -1) {
@@ -109,6 +110,7 @@ void remove_existing_message_queue() {
     }
 }
 
+// Funkcja do inicjalizacji kolejki komunikatów
 void initialize_message_queue() {
     key_t msg_key = ftok(MSG_QUEUE_PATH, MSG_QUEUE_PROJ);
     if (msg_key == -1) {
@@ -122,6 +124,7 @@ void initialize_message_queue() {
     }
 }
 
+// Funkcja do czyszczenia kolejki komunikatów
 void cleanup_message_queue() {
     if (msgctl(msg_queue_id, IPC_RMID, NULL) == -1) {
         perror("Dyspozytor: błąd msgctl");
@@ -130,6 +133,7 @@ void cleanup_message_queue() {
     }
 }
 
+// Funkcja do ustawienia socketu dyspozytora (opcjonalnie)
 int setup_dispatcher_socket() {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) {
@@ -159,11 +163,13 @@ int setup_dispatcher_socket() {
     return sock;
 }
 
+// Funkcja do zamknięcia socketu dyspozytora
 void close_dispatcher_socket(int sockfd) {
     close(sockfd);
     printf("Dyspozytor: Zamknięto socket.\n");
 }
 
+// Funkcja do tworzenia samolotu
 pid_t create_airplane() {
     pid_t pid = fork();
     if (pid < 0) {
@@ -179,6 +185,7 @@ pid_t create_airplane() {
     return pid;
 }
 
+// Funkcja do tworzenia wielu samolotów
 void create_airplanes(int num_samoloty) {
     for (int i = 0; i < num_samoloty; i++) {
         if (airplane_count < MAX_AIRPLANES) {
@@ -195,6 +202,7 @@ void create_airplanes(int num_samoloty) {
     }
 }
 
+// Funkcja do przypisywania bramek do oczekujących samolotów
 void try_assign_gates_to_waiting_planes() {
     while (!queue_is_empty(&waiting_planes)) {
         int gate_index = find_free_gate();
@@ -219,6 +227,7 @@ void try_assign_gates_to_waiting_planes() {
     }
 }
 
+// Funkcja do obsługi wiadomości z samolotów
 void handle_messages()
 {
     wiadomosc_buf msg;
@@ -265,6 +274,11 @@ void handle_messages()
                 try_assign_gates_to_waiting_planes();
                 break;
 
+            case MSG_BOARDING_FINISHED: // Nowy typ komunikatu
+                printf("Dyspozytor: Boarding zakończony dla samolotu PID %d.\n", msg.samolot_pid);
+                // Możesz dodać dodatkową logikę tutaj
+                break;
+
             default:
                 printf("Dyspozytor: Otrzymano nieznany rodzaj komunikatu %d.\n", msg.rodzaj);
                 break;
@@ -272,21 +286,34 @@ void handle_messages()
     }
 }
 
+// Funkcja wątku do wysyłania sygnałów
+void* signal_sender_thread(void* arg) {
+    (void)arg; 
+    while (keep_running) {
+        sleep(30); // Czas pomiędzy wysyłaniem sygnałów, np. co 30 sekund
+
+        // Losowo zdecyduj, który sygnał wysłać
+        int choice = rand() % 2;
+        if (choice == 0) {
+            // Wysyłanie SIGUSR1
+            send_signal_to_airplanes(SIGUSR_DEPART);
+        } else {
+            // Wysyłanie SIGUSR2
+            send_signal_to_airplanes(SIGUSR_NO_BOARD);
+        }
+    }
+    return NULL;
+}
+
 int main() {
     printf("Dyspozytor: Start\n");
     struct sigaction sa_int, sa_chld, sa_usr1, sa_usr2;
 
+    // Inicjalizacja random seed
+    srand(time(NULL));
+
     // Inicjalizacja airplane_pids
     memset(airplane_pids, 0, sizeof(airplane_pids));
-
-    // Usunięcie ustawiania nowej grupy procesów dla dyspozytora
-    // Jeśli wcześniej ustawiałeś grupę, usuń poniższy kod
-    /*
-    if (setpgid(0, 0) == -1) {
-        perror("Dyspozytor: błąd setpgid");
-        exit(EXIT_FAILURE);
-    }
-    */
 
     // Handler dla SIGINT
     sa_int.sa_handler = sigint_handler;
@@ -334,6 +361,13 @@ int main() {
         fprintf(stderr, "Dyspozytor: Nie udało się utworzyć socketu. Kontynuacja bez socketu.\n");
     }
 
+    // Tworzenie wątku do wysyłania sygnałów
+    pthread_t signal_thread;
+    if (pthread_create(&signal_thread, NULL, signal_sender_thread, NULL) != 0) {
+        perror("Dyspozytor: nie udało się utworzyć wątku signal_sender_thread");
+        exit(EXIT_FAILURE);
+    }
+
     // Tworzymy samoloty
     create_airplanes(MAX_SAMOLOT); // MAX_SAMOLOT powinien być zdefiniowany w global.h
 
@@ -350,6 +384,10 @@ int main() {
             waitpid(airplane_pids[i], NULL, 0);
         }
     }
+
+    // Zatrzymanie wątku sygnałów
+    pthread_cancel(signal_thread);
+    pthread_join(signal_thread, NULL);
 
     gate_cleanup();
     cleanup_message_queue();

@@ -1,5 +1,3 @@
-// samolot.c
-
 #include "samolot.h"
 
 #include <stdio.h>
@@ -126,12 +124,6 @@ void notify_dyspozytor(rodzaj_wiadomosc msg_type) {
 
 void simulate_flight_cycle() {
     printf("Samolot %d: Start cyklu lotu\n", getpid());
-
-    // Usunięto ustawianie nowej grupy procesów dla samolotu
-    // if (setpgid(0, 0) == -1) {
-    //     perror("Samolot: blad setpgid");
-    //     exit(EXIT_FAILURE);
-    // }
 
     // Ignorowanie SIGINT
     ignore_sigint();
@@ -296,6 +288,14 @@ void simulate_flight_cycle() {
     }
     pthread_mutex_unlock(&mutex);
 
+    // Sprawdzenie, czy wszyscy pasażerowie weszli na pokład
+    pthread_mutex_lock(&stairsMutex);
+    while (passengers_on_stairs > 0) {
+        printf("Samolot %d: Czekam na pasażerów na schodach (%d pozostaje).\n", getpid(), passengers_on_stairs);
+        pthread_cond_wait(&stairsCond, &stairsMutex);
+    }
+    pthread_mutex_unlock(&stairsMutex);
+
     // Jeśli early departure zostało wyzwolone, pomiń oczekiwanie
     if (early_depart) {
         printf("Samolot %d: Wczesny odlot.\n", getpid());
@@ -323,6 +323,17 @@ void simulate_flight_cycle() {
 
     printf("Samolot %d: Pasażerowie zakończyli procedury. Wsiadło razem=%d [normal=%d, vip=%d].\n",
            getpid(), boarded, boardedNormal, boardedVip);
+
+    // Wysyłanie komunikatu o zakończeniu boarding'u
+    wiadomosc_buf boarding_finished_msg;
+    boarding_finished_msg.mtype = 1;
+    boarding_finished_msg.rodzaj = MSG_BOARDING_FINISHED;
+    boarding_finished_msg.samolot_pid = getpid();
+    boarding_finished_msg.gate_id = -1;
+    if (msgsnd(msg_queue_id, &boarding_finished_msg,
+               sizeof(wiadomosc_buf) - sizeof(long), 0) == -1) {
+        perror("Samolot: blad msgsnd MSG_BOARDING_FINISHED");
+    }
 
     // Czyszczenie semaforów i mutexów
     sem_destroy(&bagaz_wagaSem);
