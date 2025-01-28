@@ -32,29 +32,36 @@ static int dispatcher_socket_fd = -1;
 pid_t airplane_pids[MAX_AIRPLANES];
 int airplane_count = 0;
 
-// Funkcja do wysyłania sygnału do wszystkich samolotów
-void send_signal_to_airplanes(int sig) {
-    printf("Dyspozytor: Wysyłam sygnał %d do wszystkich samolotów.\n", sig);
-    for (int i = 0; i < airplane_count; i++) {
-        if (airplane_pids[i] > 0) {
-            printf("Dyspozytor: Przygotowuję się do wysłania sygnału %d do samolotu PID %d.\n", sig, airplane_pids[i]);
-            if (kill(airplane_pids[i], sig) == -1) {
+// Funkcja do wysyłania sygnału do samolotów przypisanych do bramek
+void send_signal_to_assigned_airplanes(int sig) {
+    printf("Dyspozytor: Wysyłam sygnał %d do samolotów przypisanych do bramek.\n", sig);
+
+    for (int i = 0; i < max_gates; i++) {
+        if (gates[i].assigned_samoloty_pid > 0) {
+            pid_t plane_pid = gates[i].assigned_samoloty_pid;
+
+            printf("Dyspozytor: Przygotowuję się do wysłania sygnału %d do samolotu PID %d (bramka %d).\n",
+                   sig, plane_pid, gates[i].gate_id);
+
+            if (kill(plane_pid, sig) == -1) {
                 perror("Dyspozytor: błąd wysyłania sygnału do samolotu");
             } else {
-                printf("Dyspozytor: Wysłano sygnał %d do samolotu PID %d.\n", sig, airplane_pids[i]);
+                printf("Dyspozytor: Wysłano sygnał %d do samolotu PID %d (bramka %d).\n",
+                       sig, plane_pid, gates[i].gate_id);
             }
         }
     }
 }
 
+
 // Handler dla SIGUSR1 i SIGUSR2
 void sigusr_handler(int sig) {
     if (sig == SIGUSR1) {
         printf("Dyspozytor: Otrzymano sygnał SIGUSR1 - wymuszenie wcześniejszego odlotu.\n");
-        send_signal_to_airplanes(SIGUSR1);
+        send_signal_to_assigned_airplanes(SIGUSR1);
     } else if (sig == SIGUSR2) {
         printf("Dyspozytor: Otrzymano sygnał SIGUSR2 - zakaz dalszego boardingu.\n");
-        send_signal_to_airplanes(SIGUSR2);
+        send_signal_to_assigned_airplanes(SIGUSR2);
         stopBoarding = 1; // Ustawienie flagi zatrzymującej boarding
     }
 }
@@ -62,7 +69,7 @@ void sigusr_handler(int sig) {
 // Handler dla SIGINT
 void sigint_handler(int sig) {
     printf("\nDyspozytor: Odebrano SIGINT (%d). Wysyłam SIGKILL do wszystkich samolotów...\n", sig);
-    send_signal_to_airplanes(SIGKILL);
+    send_signal_to_assigned_airplanes(SIGKILL);
     printf("Dyspozytor: Zakończono działanie.\n");
     exit(0);
 }
@@ -296,10 +303,10 @@ void* signal_sender_thread(void* arg) {
         int choice = rand() % 2;
         if (choice == 0) {
             // Wysyłanie SIGUSR1
-            send_signal_to_airplanes(SIGUSR_DEPART);
+            send_signal_to_assigned_airplanes(SIGUSR_DEPART);
         } else {
             // Wysyłanie SIGUSR2
-            send_signal_to_airplanes(SIGUSR_NO_BOARD);
+            send_signal_to_assigned_airplanes(SIGUSR_NO_BOARD);
         }
     }
     return NULL;
@@ -375,7 +382,7 @@ int main() {
     handle_messages();
 
     // Po zakończeniu obsługi wiadomości, wysyłamy SIGKILL do wszystkich samolotów
-    send_signal_to_airplanes(SIGKILL);
+    send_signal_to_assigned_airplanes(SIGKILL);
 
     // Oczekujemy na zakończenie wszystkich procesów potomnych
     for (int i = 0; i < airplane_count; i++) {
