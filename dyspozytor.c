@@ -6,7 +6,7 @@
 #include <signal.h>
 #include <errno.h>
 #include <sys/types.h>
-#include <sys/socket.h>   // Gniazda
+#include <sys/socket.h>   
 #include <netinet/in.h>
 #include <string.h>
 #include <pthread.h>
@@ -16,8 +16,6 @@
 #include "dyspozytor.h"
 #include "gate.h"
 #include "queue.h"
-
-#define MAX_AIRPLANES 100
 
 // Globalne zmienne
 int msg_queue_id;
@@ -29,8 +27,29 @@ static PlaneQueue waiting_planes;
 static int dispatcher_socket_fd = -1;
 
 // Tablica do śledzenia PID samolotów
-pid_t airplane_pids[MAX_AIRPLANES];
+pid_t airplane_pids[MAX_SAMOLOT];
 int airplane_count = 0;
+
+// Mutex do synchronizacji dostępu do airplane_pids
+pthread_mutex_t airplane_pids_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// Funkcja do wysyłania sygnału do wszystkich samolotów
+void send_signal_to_airplanes(int sig) {
+    pthread_mutex_lock(&airplane_pids_mutex);
+    printf("Dyspozytor: Wysyłam sygnał %d do wszystkich samolotów.\n", sig);
+    for (int i = 0; i < airplane_count; i++) {
+        if (airplane_pids[i] > 0) {
+            printf("Dyspozytor: Przygotowuję się do wysłania sygnału %d do samolotu PID %d.\n", sig, airplane_pids[i]);
+            if (kill(airplane_pids[i], sig) == -1) {
+                perror("Dyspozytor: błąd wysyłania sygnału do samolotu");
+            } else {
+                printf("Dyspozytor: Wysłano sygnał %d do samolotu PID %d.\n", sig, airplane_pids[i]);
+            }
+        }
+    }
+    pthread_mutex_unlock(&airplane_pids_mutex);
+} 
+
 
 // Funkcja do wysyłania sygnału do samolotów przypisanych do bramek
 void send_signal_to_assigned_airplanes(int sig) {
@@ -69,9 +88,28 @@ void sigusr_handler(int sig) {
 // Handler dla SIGINT
 void sigint_handler(int sig) {
     printf("\nDyspozytor: Odebrano SIGINT (%d). Wysyłam SIGKILL do wszystkich samolotów...\n", sig);
-    send_signal_to_assigned_airplanes(SIGKILL);
+    send_signal_to_airplanes(SIGKILL);
     printf("Dyspozytor: Zakończono działanie.\n");
     exit(0);
+}
+
+// Handler dla SIGTSTP w dyspozytorze
+void sigtstp_handler_dispatcher(int sig) {
+    printf("Dyspozytor: Otrzymano SIGTSTP (%d). Wysyłam SIGTSTP do wszystkich samolotów.\n", sig);
+    send_signal_to_airplanes(SIGTSTP);
+    printf("Dyspozytor: STOP.\n");
+
+    // Przywracanie domyślnego handlera dla SIGTSTP
+    struct sigaction sa_default;
+    sa_default.sa_handler = SIG_DFL;
+    sigemptyset(&sa_default.sa_mask);
+    sa_default.sa_flags = 0;
+    if (sigaction(SIGTSTP, &sa_default, NULL) == -1) {
+        perror("Dyspozytor: błąd sigaction SIGTSTP");
+        exit(EXIT_FAILURE);
+    }
+
+    raise(SIGTSTP);
 }
 
 // Handler dla SIGCHLD
@@ -183,7 +221,10 @@ pid_t create_airplane() {
         perror("Dyspozytor: błąd fork");
         return -1;
     } else if (pid == 0) {
-        // Proces potomny: uruchom samolot
+        if (setpgid(0, getppid()) == -1) {
+            perror("Dyspozytor: błąd setpgid w samolocie");
+            exit(EXIT_FAILURE);
+        }
         execl("./samolot", "samolot", NULL);
         perror("Dyspozytor: błąd execl");
         exit(EXIT_FAILURE);
@@ -195,7 +236,7 @@ pid_t create_airplane() {
 // Funkcja do tworzenia wielu samolotów
 void create_airplanes(int num_samoloty) {
     for (int i = 0; i < num_samoloty; i++) {
-        if (airplane_count < MAX_AIRPLANES) {
+        if (airplane_count < MAX_SAMOLOT) {
             pid_t pid = create_airplane();
             if (pid > 0) {
                 airplane_pids[airplane_count++] = pid;
@@ -203,7 +244,7 @@ void create_airplanes(int num_samoloty) {
                 fprintf(stderr, "Dyspozytor: Nie udało się utworzyć samolotu.\n");
             }
         } else {
-            fprintf(stderr, "Dyspozytor: Przekroczono maksymalną liczbę samolotów (%d).\n", MAX_AIRPLANES);
+            fprintf(stderr, "Dyspozytor: Przekroczono maksymalną liczbę samolotów (%d).\n", MAX_SAMOLOT);
             break;
         }
     }
@@ -314,7 +355,20 @@ void* signal_sender_thread(void* arg) {
 
 int main() {
     printf("Dyspozytor: Start\n");
-    struct sigaction sa_int, sa_chld, sa_usr1, sa_usr2;
+    struct sigaction sa_int, sa_tstp, sa_chld, sa_usr1, sa_usr2;
+
+    // Ustawienie dispatcher jako lider grupy procesów
+    pid_t pid = getpid();
+    if (setpgid(pid, pid) == -1) {
+        perror("Dyspozytor: setpgid failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Ustawienie grupy procesów jako foreground dla terminala
+    if (tcsetpgrp(STDIN_FILENO, getpgid(pid)) == -1) {
+        perror("Dyspozytor: tcsetpgrp failed");
+        // Kontynuacja nawet jeśli ustawienie nie powiedzie się
+    }
 
     // Inicjalizacja random seed
     srand(time(NULL));
@@ -328,6 +382,15 @@ int main() {
     sa_int.sa_flags = 0;
     if (sigaction(SIGINT, &sa_int, NULL) == -1) {
         perror("Dyspozytor: błąd sigaction SIGINT");
+        exit(EXIT_FAILURE);
+    }
+
+    // Handler dla SIGTSTP
+    sa_tstp.sa_handler = sigtstp_handler_dispatcher;
+    sigemptyset(&sa_tstp.sa_mask);
+    sa_tstp.sa_flags = 0;
+    if (sigaction(SIGTSTP, &sa_tstp, NULL) == -1) {
+        perror("Dyspozytor: błąd sigaction SIGTSTP");
         exit(EXIT_FAILURE);
     }
 
@@ -362,7 +425,7 @@ int main() {
     queue_init(&waiting_planes);
     gate_init(max_gates);
 
-    // Przykład użycia socketu (opcjonalnie):
+    //Socket
     int sockfd = setup_dispatcher_socket();
     if (sockfd < 0) {
         fprintf(stderr, "Dyspozytor: Nie udało się utworzyć socketu. Kontynuacja bez socketu.\n");
@@ -382,7 +445,7 @@ int main() {
     handle_messages();
 
     // Po zakończeniu obsługi wiadomości, wysyłamy SIGKILL do wszystkich samolotów
-    send_signal_to_assigned_airplanes(SIGKILL);
+    send_signal_to_airplanes(SIGKILL);
 
     // Oczekujemy na zakończenie wszystkich procesów potomnych
     for (int i = 0; i < airplane_count; i++) {

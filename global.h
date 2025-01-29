@@ -12,10 +12,10 @@
 
 // Definicje związane z samolotami i komunikatami
 
-#define SIGUSR_DEPART     SIGUSR1  // Sygnał 1: wymuszenie wcześniejszego odlotu
-#define SIGUSR_NO_BOARD   SIGUSR2  // Sygnał 2: zakaz dalszego boardingu
+#define SIGUSR_DEPART SIGUSR1  // Sygnał 1: wymuszenie wcześniejszego odlotu
+#define SIGUSR_NO_BOARD SIGUSR2  // Sygnał 2: zakaz dalszego boardingu
 
-#define MAX_SAMOLOT 5
+#define MAX_SAMOLOT 10
 #define T1  20 // W sekundach
 
 #define MSG_QUEUE_PATH "msgqueue.key"
@@ -38,15 +38,13 @@ typedef struct {
 
 // Definicje do obsługi pasażerów
 
-#define M 50  // Miejsca
+#define M 10 // Masa bagażu
 #define N 50  // Ilość pasażerów
-#define K 15 // Pojemność schodów
-
+#define K  15 // Pojemność schodów
+//Procent VIP
+#define VIP_PERCENT 20
 // Dodatkowy limit, ile razy można kogoś przepuścić (dot. nie-VIP).
 #define MAX_SKIP 3
-
-// Ile % pasażerów jest VIP (przykładowo 20%).
-#define VIP_PERCENT 20
 
 extern volatile sig_atomic_t stopBoarding; // Blokuje boarding pasażerów
 
@@ -74,8 +72,8 @@ extern pthread_cond_t samolotCond;
 // --------------------------------------------
 // Liczniki pasażerów
 // --------------------------------------------
-extern int capacityNormal;    // Liczba wolnych miejsc na schodach zwykłych
-extern int capacityVip;       // Liczba wolnych miejsc na schodach VIP
+extern int capacityNormal;    
+extern int capacityVip;       
 extern int licznik_pasazer;   // Licznik pasażerów (tych co wsiedli lub odpadli)
 
 // --------------------------------------------
@@ -90,4 +88,4 @@ extern int passengers_on_stairs; // Liczba pasażerów na schodach
 extern pthread_mutex_t stairsMutex; // Mutex do ochrony zmiennej passengers_on_stairs
 extern pthread_cond_t stairsCond; // Warunek do sygnalizacji zmiany stanu pasażerów na schodach
 
-#endif 
+#endif  

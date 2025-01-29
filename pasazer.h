@@ -6,11 +6,6 @@
 #include <signal.h>
 #include "kontrola.h"
 
-// Rozdzielenie na schody zwykłe i VIP.
-extern int capacityNormal;    // Liczba wolnych miejsc na schodach zwykłych
-extern int capacityVip;       // Liczba wolnych miejsc na schodach VIP
-extern int licznik_pasazer;   // Licznik pasażerów (tych co wsiedli lub odpadli)
-
 // Sygnalizacja dla samolotu (gdy ktoś wejdzie lub zrezygnuje)
 extern pthread_mutex_t mutex;
 extern pthread_cond_t samolotCond;

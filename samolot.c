@@ -1,5 +1,4 @@
-#include "samolot.h"
-
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -13,6 +12,7 @@
 
 #include "global.h"
 #include "pasazer.h"
+#include "samolot.h"
 
 // Zmienne globalne
 int msg_queue_id;
@@ -29,6 +29,11 @@ void sigalrm_handler(int sig) {
     printf("Samolot %d: Otrzymano SIGALRM - czas T1 upłynął, przygotowanie do odlotu.\n", getpid());
     early_depart = 0; // Normalny odlot
     keep_running = 0;
+    stopBoarding = 1; // Ustawienie flagi zatrzymania boardingu
+
+    // Wybudzenie wszystkich oczekujących wątków pasażerów
+    pthread_cond_broadcast(&samolotCond);
+    pthread_cond_broadcast(&stairsCond);
 }
 
 // Handler dla SIGTSTP
@@ -53,9 +58,17 @@ void sigusr_handler(int sig) {
         printf("Samolot %d: Otrzymano sygnał SIGUSR1 - wymuszenie wczesniejszego odlotu.\n", getpid());
         early_depart = 1;
         keep_running = 0;
+        stopBoarding = 1; // Opcjonalnie, aby zatrzymać boarding
+        // Wybudzenie wszystkich oczekujących wątków pasażerów
+        pthread_cond_broadcast(&samolotCond);
+        pthread_cond_broadcast(&stairsCond);
     } else if (sig == SIGUSR2) {
         printf("Samolot %d: Otrzymano sygnał SIGUSR2 - zakaz dalszego boardingu.\n", getpid());
         keep_running = 0;
+        stopBoarding = 1; // Ustawienie flagi zatrzymania boardingu
+        // Wybudzenie wszystkich oczekujących wątków pasażerów
+        pthread_cond_broadcast(&samolotCond);
+        pthread_cond_broadcast(&stairsCond);
     }
 }
 
@@ -206,11 +219,6 @@ void simulate_flight_cycle() {
         exit(EXIT_FAILURE);
     }
 
-    // Inicjalizacja pojemności
-    capacityNormal = K;
-    capacityVip    = K;
-    licznik_pasazer = 0;
-
     // Inicjalizacja kolejki komunikatów
     key_t msg_key = ftok(MSG_QUEUE_PATH, MSG_QUEUE_PROJ);
     if (msg_key == -1) {
@@ -306,6 +314,11 @@ void simulate_flight_cycle() {
 
     // Ustaw keep_running na 0, by zasygnalizować pasażerom zatrzymanie boardingu
     keep_running = 0;
+    stopBoarding = 1; // Ustawienie flagi zatrzymania boardingu
+
+    // Wybudzenie wszystkich oczekujących wątków pasażerów
+    pthread_cond_broadcast(&samolotCond);
+    pthread_cond_broadcast(&stairsCond);
 
     // Dołączamy wątki
     for (int i = 0; i < N; i++) {
@@ -367,4 +380,4 @@ int main() {
         sleep(1);
     }
     return 0;
-}
+} 
