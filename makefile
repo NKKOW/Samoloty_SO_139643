@@ -1,38 +1,43 @@
-# Nazwa kompilatora i opcje
+# --- Makefile ---
+
 CC      = gcc
 CFLAGS  = -Wall -Wextra -pthread
 
-# Pliki źródłowe (podzielone na dwie grupy):
+# Pliki obiektów do dyspozytora:
 OBJS_DYSPOZYTOR = dyspozytor.o gate.o queue.o global.o
-OBJS_SAMOLOT    = samolot.o pasazer.o kontrola.o global.o
 
-# Domyślny cel, który buduje oba programy
-all: msgqueue.key dyspozytor samolot
+# Pliki obiektów do samolotu
+OBJS_SAMOLOT    = samolot.o global.o
+# (jeśli samolot używa funkcji z kontrola.c, dodaj kontrola.o)
 
-# Reguła budowy dyspozytora
-dyspozytor: msgqueue.key $(OBJS_DYSPOZYTOR)
+# Pliki obiektów do pasażera
+OBJS_PASAZER    = pasazer.o kontrola.o global.o
+
+# ----------------------------------------------
+# Budujemy wszystko (3 programy i plik msgqueue.key)
+all: dyspozytor samolot pasazer msgqueue.key
+
+dyspozytor: $(OBJS_DYSPOZYTOR)
 	$(CC) $(CFLAGS) -o $@ $(OBJS_DYSPOZYTOR)
 
-# Reguła budowy samolotu
-samolot: msgqueue.key $(OBJS_SAMOLOT)
+samolot: $(OBJS_SAMOLOT)
 	$(CC) $(CFLAGS) -o $@ $(OBJS_SAMOLOT)
 
-# Reguła tworzenia pliku msgqueue.key
+pasazer: $(OBJS_PASAZER)
+	$(CC) $(CFLAGS) -o $@ $(OBJS_PASAZER)
+
 msgqueue.key:
 	@echo "Tworzenie pliku msgqueue.key."
 	touch msgqueue.key
 
-# Reguły kompilacji plików .c -> .o
 %.o: %.c
 	$(CC) $(CFLAGS) -c $<
 
-# Sprzątanie po kompilacji
 clean:
 	rm -f *.o
-	rm -f dyspozytor samolot
+	rm -f dyspozytor samolot pasazer
 	rm -f kontrola_fifo_REG
 	rm -f kontrola_fifo_vip
 	rm -f msgqueue.key
 
-# Phony – te cele nie korespondują z plikami
 .PHONY: all clean

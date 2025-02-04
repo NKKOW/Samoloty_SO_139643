@@ -3,126 +3,118 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <signal.h>
-#include <sys/shm.h>        // Segmenty pamięci dzielonej
+#include <sys/shm.h>
 #include <sys/ipc.h>
 #include <string.h>
 #include <pthread.h>
 #include <semaphore.h>
 #include <time.h>
+#include <sys/wait.h>
 
 #include "global.h"
-#include "pasazer.h"
 #include "samolot.h"
 
-// Zmienne globalne
+// *** Zmienne globalne ***
 int msg_queue_id;
 volatile sig_atomic_t keep_running = 1;
-volatile sig_atomic_t early_depart = 0; // Flaga do wczesnego odlotu
+volatile sig_atomic_t early_depart = 0;
 
-// Zmienne do pamięci dzielonej
 static int shm_id = -1;
 static SharedData* shm_ptr = NULL;
 
-// Handler dla SIGALRM
-void sigalrm_handler(int sig) {
-    (void)sig; // Zapobiega ostrzeżeniu o nieużywanym parametrze
-    printf("Samolot %d: Otrzymano SIGALRM - czas T1 upłynął, przygotowanie do odlotu.\n", getpid());
-    early_depart = 0; // Normalny odlot
-    keep_running = 0;
-    stopBoarding = 1; // Ustawienie flagi zatrzymania boardingu
+// [REMOVED] - Brak passenger_pids[] i forka pasażerów.
 
-    // Wybudzenie wszystkich oczekujących wątków pasażerów
+void* stairs_thread_func(void* arg) {
+    (void)arg;
+    while (1) {
+        pthread_mutex_lock(&mutex);
+        int finished = (licznik_pasazer == N) ||
+                       (capacityNormal == 0 && capacityVip == 0) ||
+                       !keep_running;
+        pthread_mutex_unlock(&mutex);
+
+        if (finished) {
+            break;
+        }
+        sleep(1);
+    }
+    printf("[Samolot][Schody] -> koniec wątku.\n");
+    return NULL;
+}
+
+// Handler SIGALRM
+void sigalrm_handler(int sig) {
+    (void)sig;
+    printf("[Samolot %d] Czas T1 upłynął, koniec boardingu.\n", getpid());
+    early_depart = 0;
+    keep_running = 0;
+    stopBoarding = 1;
     pthread_cond_broadcast(&samolotCond);
     pthread_cond_broadcast(&stairsCond);
 }
 
-// Handler dla SIGTSTP
+// Handler SIGTSTP
 void sigtstp_handler(int sig) {
-    printf("Samolot %d: Otrzymano sygnał %d (SIGTSTP), zatrzymywanie procesu.\n", getpid(), sig);
-    // Przywracamy domyślne zachowanie dla SIGTSTP
+    printf("[Samolot %d] SIGTSTP (%d).\n", getpid(), sig);
     struct sigaction sa_default;
     sa_default.sa_handler = SIG_DFL;
     sigemptyset(&sa_default.sa_mask);
     sa_default.sa_flags = 0;
-    if (sigaction(SIGTSTP, &sa_default, NULL) == -1) {
-        perror("Samolot: blad sigaction SIGTSTP");
-        exit(EXIT_FAILURE);
-    }
-    // Ponowne wysłanie SIGTSTP, aby zatrzymać proces
+    sigaction(SIGTSTP, &sa_default, NULL);
     raise(SIGTSTP);
 }
 
-// Handler dla SIGUSR1 i SIGUSR2
+// Handler SIGUSR1/SIGUSR2
 void sigusr_handler(int sig) {
     if (sig == SIGUSR1) {
-        printf("Samolot %d: Otrzymano sygnał SIGUSR1 - wymuszenie wczesniejszego odlotu.\n", getpid());
+        printf("[Samolot %d] Wczesny odlot (SIGUSR1)\n", getpid());
         early_depart = 1;
         keep_running = 0;
-        stopBoarding = 1; // Opcjonalnie, aby zatrzymać boarding
-        // Wybudzenie wszystkich oczekujących wątków pasażerów
+        stopBoarding = 1;
         pthread_cond_broadcast(&samolotCond);
         pthread_cond_broadcast(&stairsCond);
     } else if (sig == SIGUSR2) {
-        printf("Samolot %d: Otrzymano sygnał SIGUSR2 - zakaz dalszego boardingu.\n", getpid());
+        printf("[Samolot %d] Zakaz dalszego boardingu (SIGUSR2)\n", getpid());
         keep_running = 0;
-        stopBoarding = 1; // Ustawienie flagi zatrzymania boardingu
-        // Wybudzenie wszystkich oczekujących wątków pasażerów
+        stopBoarding = 1;
         pthread_cond_broadcast(&samolotCond);
         pthread_cond_broadcast(&stairsCond);
     }
 }
 
-// Funkcja do ignorowania SIGINT w samolocie
 void ignore_sigint() {
     struct sigaction sa_ignore;
     sa_ignore.sa_handler = SIG_IGN;
     sigemptyset(&sa_ignore.sa_mask);
     sa_ignore.sa_flags = 0;
-    if (sigaction(SIGINT, &sa_ignore, NULL) == -1) {
-        perror("Samolot: błąd sigaction SIGINT");
-        exit(EXIT_FAILURE);
-    }
+    sigaction(SIGINT, &sa_ignore, NULL);
 }
 
-// Tworzenie / przyłączanie pamięci dzielonej
 static void init_shared_memory() {
-    // Używamy klucza z pliku:
     key_t key = ftok(MSG_QUEUE_PATH, 'S');
     if (key == -1) {
-        perror("Samolot: blad ftok for shm");
+        perror("Samolot: ftok");
         exit(EXIT_FAILURE);
     }
-
-    // Tworzymy / uzyskujemy segment
     shm_id = shmget(key, sizeof(SharedData), 0666 | IPC_CREAT);
     if (shm_id < 0) {
-        perror("Samolot: blad shmget");
+        perror("Samolot: shmget");
         exit(EXIT_FAILURE);
     }
-
-    // Przyłączamy
     shm_ptr = (SharedData*) shmat(shm_id, NULL, 0);
-    if (shm_ptr == (void*) -1) {
-        perror("Samolot: blad shmat");
+    if (shm_ptr == (void*)-1) {
+        perror("Samolot: shmat");
         exit(EXIT_FAILURE);
     }
-
-    // Inicjalizacja mutexa w pamięci dzielonej (tylko jeśli jest to pierwsze połączenie)
-    // Zakładamy, że inny proces inicjalizuje mutex
 }
 
-// Odłączanie pamięci (na koniec)
 static void detach_shared_memory() {
     if (shm_ptr) {
-        // Nie niszczymy mutexa, ponieważ może być używany przez inne procesy
         shmdt(shm_ptr);
         shm_ptr = NULL;
     }
-    // Nie usuwamy segmentu, bo może jeszcze być potrzebny
-    // do innych samolotów w projekcie
 }
 
-// Funkcja wysyłająca komunikaty do dyspozytora
 void notify_dyspozytor(rodzaj_wiadomosc msg_type) {
     wiadomosc_buf msg;
     msg.mtype = 1;
@@ -130,254 +122,135 @@ void notify_dyspozytor(rodzaj_wiadomosc msg_type) {
     msg.samolot_pid = getpid();
     msg.gate_id = -1;
     if (msgsnd(msg_queue_id, &msg, sizeof(wiadomosc_buf) - sizeof(long), 0) == -1) {
-        perror("Samolot: blad msgsnd");
+        perror("Samolot: msgsnd");
         exit(EXIT_FAILURE);
     }
 }
 
+// [CHANGED] – Samolot NIE tworzy pasażerów.
 void simulate_flight_cycle() {
-    printf("Samolot %d: Start cyklu lotu\n", getpid());
-
-    // Ignorowanie SIGINT
+    printf("[Samolot %d] Start cyklu\n", getpid());
     ignore_sigint();
 
-    // Setup signal handlers
+    // Sygnalizacja
     struct sigaction sa_usr, sa_alarm, sa_tstp;
-
-    // Obsługa SIGUSR1 i SIGUSR2
+    memset(&sa_usr, 0, sizeof(sa_usr));
     sa_usr.sa_handler = sigusr_handler;
-    sigemptyset(&sa_usr.sa_mask);
-    sa_usr.sa_flags = 0;
-    if (sigaction(SIGUSR1, &sa_usr, NULL) == -1) {
-        perror("Samolot: blad sigaction SIGUSR1");
-        exit(EXIT_FAILURE);
-    }
-    if (sigaction(SIGUSR2, &sa_usr, NULL) == -1) {
-        perror("Samolot: blad sigaction SIGUSR2");
-        exit(EXIT_FAILURE);
-    }
+    sigaction(SIGUSR1, &sa_usr, NULL);
+    sigaction(SIGUSR2, &sa_usr, NULL);
 
-    // Obsługa SIGALRM
+    memset(&sa_alarm, 0, sizeof(sa_alarm));
     sa_alarm.sa_handler = sigalrm_handler;
-    sigemptyset(&sa_alarm.sa_mask);
-    sa_alarm.sa_flags = 0;
-    if (sigaction(SIGALRM, &sa_alarm, NULL) == -1) {
-        perror("Samolot: blad sigaction SIGALRM");
-        exit(EXIT_FAILURE);
-    }
+    sigaction(SIGALRM, &sa_alarm, NULL);
 
-    // Obsługa SIGTSTP
+    memset(&sa_tstp, 0, sizeof(sa_tstp));
     sa_tstp.sa_handler = sigtstp_handler;
-    sigemptyset(&sa_tstp.sa_mask);
-    sa_tstp.sa_flags = 0;
-    if (sigaction(SIGTSTP, &sa_tstp, NULL) == -1) {
-        perror("Samolot: blad sigaction SIGTSTP");
-        exit(EXIT_FAILURE);
-    }
+    sigaction(SIGTSTP, &sa_tstp, NULL);
 
-    // Inicjalizacja pamięci dzielonej
     init_shared_memory();
 
-    // Inicjalizacja semaforów do schodów
-    if (sem_init(&stairsSemNormal, 0, 1) == -1) { // Shared między wątkami w tym samym procesie
-        perror("Samolot: blad inicjalizacji semafora stairsSemNormal");
-        detach_shared_memory();
-        exit(EXIT_FAILURE);
-    }
-    if (sem_init(&stairsSemVip, 0, 1) == -1) { // Shared między wątkami w tym samym procesie
-        perror("Samolot: blad inicjalizacji semafora stairsSemVip");
-        sem_destroy(&stairsSemNormal);
-        detach_shared_memory();
-        exit(EXIT_FAILURE);
-    }
+    sem_init(&stairsSemNormal, 0, 1);
+    sem_init(&stairsSemVip, 0, 1);
+    sem_init(&bagaz_wagaSem, 0, 1);
 
-    // Inicjalizacja semafora do wagi bagażowej
-    if (sem_init(&bagaz_wagaSem, 0, 1) == -1) { // Shared między wątkami w tym samym procesie
-        perror("Samolot: blad inicjalizacji semafora bagaz_wagaSem");
-        sem_destroy(&stairsSemNormal);
-        sem_destroy(&stairsSemVip);
-        detach_shared_memory();
-        exit(EXIT_FAILURE);
-    }
+    pthread_mutex_init(&mutex, NULL);
+    pthread_cond_init(&samolotCond, NULL);
 
-    // Inicjalizacja mutexa i warunku
-    if (pthread_mutex_init(&mutex, NULL) != 0) {
-        perror("Samolot: blad inicjalizacji mutex");
-        sem_destroy(&bagaz_wagaSem);
-        sem_destroy(&stairsSemNormal);
-        sem_destroy(&stairsSemVip);
-        detach_shared_memory();
-        exit(EXIT_FAILURE);
-    }
-    if (pthread_cond_init(&samolotCond, NULL) != 0) {
-        perror("Samolot: blad inicjalizacji warunku");
-        pthread_mutex_destroy(&mutex);
-        sem_destroy(&bagaz_wagaSem);
-        sem_destroy(&stairsSemNormal);
-        sem_destroy(&stairsSemVip);
-        detach_shared_memory();
-        exit(EXIT_FAILURE);
-    }
-
-    // Inicjalizacja kolejki komunikatów
+    // Kolejka komunikatów
     key_t msg_key = ftok(MSG_QUEUE_PATH, MSG_QUEUE_PROJ);
     if (msg_key == -1) {
-        perror("Samolot: blad ftok");
-        pthread_cond_destroy(&samolotCond);
-        pthread_mutex_destroy(&mutex);
-        sem_destroy(&bagaz_wagaSem);
-        sem_destroy(&stairsSemNormal);
-        sem_destroy(&stairsSemVip);
-        detach_shared_memory();
+        perror("Samolot: ftok");
         exit(EXIT_FAILURE);
     }
     msg_queue_id = msgget(msg_key, 0666);
     if (msg_queue_id == -1) {
-        perror("Samolot: blad msgget");
-        pthread_cond_destroy(&samolotCond);
-        pthread_mutex_destroy(&mutex);
-        sem_destroy(&bagaz_wagaSem);
-        sem_destroy(&stairsSemNormal);
-        sem_destroy(&stairsSemVip);
-        detach_shared_memory();
+        perror("Samolot: msgget");
         exit(EXIT_FAILURE);
     }
 
-    // Prośba do dyspozytora o gate
     notify_dyspozytor(MSG_GATE_REQUEST);
-
     wiadomosc_buf reply_msg;
-    printf("Samolot %d: Oczekiwanie na gate...\n", getpid());
-    if(msgrcv(msg_queue_id, &reply_msg,
-              sizeof(wiadomosc_buf) - sizeof(long),
-              getpid(), 0) == -1) {
-        perror("Samolot: blad msgrcv");
-        sem_destroy(&bagaz_wagaSem);
-        sem_destroy(&stairsSemNormal);
-        sem_destroy(&stairsSemVip);
-        pthread_cond_destroy(&samolotCond);
-        pthread_mutex_destroy(&mutex);
-        detach_shared_memory();
+    printf("[Samolot %d] czeka na gate...\n", getpid());
+    if (msgrcv(msg_queue_id, &reply_msg, sizeof(wiadomosc_buf) - sizeof(long),
+               getpid(), 0) == -1) {
+        perror("Samolot: msgrcv gate");
         return;
     }
-    if(reply_msg.rodzaj != MSG_GATE_ASSIGN || reply_msg.gate_id == -1) {
+    if (reply_msg.rodzaj != MSG_GATE_ASSIGN || reply_msg.gate_id == -1) {
         notify_dyspozytor(MSG_SAMOLOT_POWROT);
-        sem_destroy(&bagaz_wagaSem);
-        sem_destroy(&stairsSemNormal);
-        sem_destroy(&stairsSemVip);
-        pthread_cond_destroy(&samolotCond);
-        pthread_mutex_destroy(&mutex);
-        detach_shared_memory();
         return;
     }
+    printf("[Samolot %d] Otrzymano gate %d.\n", getpid(), reply_msg.gate_id);
 
-    printf("Samolot %d: Przydzielono gate %d\n", getpid(), reply_msg.gate_id);
+    // [CHANGED ADDED] – tworzymy wątek schodów (ale NIE tworzymy pasażerów).
+    pthread_t stairs_tid;
+    pthread_create(&stairs_tid, NULL, stairs_thread_func, NULL);
 
-    // -----------------------------
-    // Uruchamiamy wątki pasażerów
-    // -----------------------------
-    pthread_t threads[N];
+    // Czas T1
+    alarm(T1);
 
-    // Tworzenie wątków pasażerów
-    for (long i = 0; i < N; i++) {
-        if (pthread_create(&threads[i], NULL, pasazer_func, (void*) i) != 0) {
-            perror("Samolot: blad tworzenia wątku pasażera");
-            // Kontynuujemy tworzenie pozostałych pasażerów
-        }
-    }
+    // [CHANGED ADDED] – Czekamy np. 5 sekund, aby pasażerowie (uruchomieni niezależnie) 
+    //   mieli czas przyjść, przejść kontrolę i wejść do Holu.
+    sleep(5);
 
-    // Rozpocznij timer dla odlotu po T1 sekund
-    alarm(T1); // Używanie alarmu dla prostoty
+    // [CHANGED ADDED] – Wysyłamy SIGUSR2 do "wszystkich pasażerów" (np. do grupy),
+    //   bo nie mamy tablicy z ich PIDami. 
+    printf("[Samolot %d] -> Start boardingu: SIGUSR2 do grupy.\n", getpid());
+    kill(0, SIGUSR2); // UWAGA: w realnym systemie lepiej adresować tylko do właściwych pasażerów
 
-    // Czekamy, aż wszyscy pasażerowie przejdą procedury (lub wyczerpią się miejsca).
+    // [CHANGED ADDED] – Nie czekamy na pasażerów (brak waitpid, bo to nie nasze childy).
+    //   Po T1 sygnalizujemy koniec (alarm).
+    sleep(T1 + 2);
+
+    // Zamykanie wątku schodów
     pthread_mutex_lock(&mutex);
-    while (licznik_pasazer < N && (capacityNormal > 0 || capacityVip > 0) && keep_running) {
-        pthread_cond_wait(&samolotCond, &mutex);
-    }
+    keep_running = 0;
+    pthread_cond_broadcast(&samolotCond);
     pthread_mutex_unlock(&mutex);
 
-    // Sprawdzenie, czy wszyscy pasażerowie weszli na pokład
-    pthread_mutex_lock(&stairsMutex);
-    while (passengers_on_stairs > 0) {
-        printf("Samolot %d: Czekam na pasażerów na schodach (%d pozostaje).\n", getpid(), passengers_on_stairs);
-        pthread_cond_wait(&stairsCond, &stairsMutex);
-    }
-    pthread_mutex_unlock(&stairsMutex);
+    pthread_join(stairs_tid, NULL);
 
-    // Jeśli early departure zostało wyzwolone, pomiń oczekiwanie
-    if (early_depart) {
-        printf("Samolot %d: Wczesny odlot.\n", getpid());
-    } else {
-        // Normalny odlot
-        printf("Samolot %d: Czas T1 upłynął, odlot.\n", getpid());
-    }
-
-    // Ustaw keep_running na 0, by zasygnalizować pasażerom zatrzymanie boardingu
-    keep_running = 0;
-    stopBoarding = 1; // Ustawienie flagi zatrzymania boardingu
-
-    // Wybudzenie wszystkich oczekujących wątków pasażerów
-    pthread_cond_broadcast(&samolotCond);
-    pthread_cond_broadcast(&stairsCond);
-
-    // Dołączamy wątki
-    for (int i = 0; i < N; i++) {
-        pthread_join(threads[i], NULL);
-    }
-
-    // Zbieramy dane do pamięci dzielonej
+    // Podsumowanie
     pthread_mutex_lock(&shm_ptr->shm_mutex);
     int boardedNormal = K - capacityNormal;
-    int boardedVip    = K - capacityVip;
-    int boarded       = boardedNormal + boardedVip;
+    int boardedVip = K - capacityVip;
+    int boarded = boardedNormal + boardedVip;
     shm_ptr->total_boarded += boarded;
     shm_ptr->total_rejected += (N - boarded);
     pthread_mutex_unlock(&shm_ptr->shm_mutex);
 
-    printf("Samolot %d: Pasażerowie zakończyli procedury. Wsiadło razem=%d [normal=%d, vip=%d].\n",
-           getpid(), boarded, boardedNormal, boardedVip);
+    printf("[Samolot %d] Boarding zakończony. Wsiadło=%d.\n", getpid(), boarded);
 
-    // Wysyłanie komunikatu o zakończeniu boarding'u
-    wiadomosc_buf boarding_finished_msg;
-    boarding_finished_msg.mtype = 1;
-    boarding_finished_msg.rodzaj = MSG_BOARDING_FINISHED;
-    boarding_finished_msg.samolot_pid = getpid();
-    boarding_finished_msg.gate_id = -1;
-    if (msgsnd(msg_queue_id, &boarding_finished_msg,
-               sizeof(wiadomosc_buf) - sizeof(long), 0) == -1) {
-        perror("Samolot: blad msgsnd MSG_BOARDING_FINISHED");
-    }
+    wiadomosc_buf done_msg;
+    done_msg.mtype = 1;
+    done_msg.rodzaj = MSG_BOARDING_FINISHED;
+    done_msg.samolot_pid = getpid();
+    done_msg.gate_id = -1;
+    msgsnd(msg_queue_id, &done_msg, sizeof(wiadomosc_buf) - sizeof(long), 0);
 
-    // Czyszczenie semaforów i mutexów
     sem_destroy(&bagaz_wagaSem);
     sem_destroy(&stairsSemNormal);
     sem_destroy(&stairsSemVip);
     pthread_mutex_destroy(&mutex);
     pthread_cond_destroy(&samolotCond);
 
-    // Symulacja przygotowania do odlotu
-    sleep(2);
-    if (!keep_running) {
-        // Kończymy, wysyłamy powrót
-        notify_dyspozytor(MSG_SAMOLOT_POWROT);
-        detach_shared_memory();
-        return;
+    if (early_depart) {
+        printf("[Samolot %d] Wczesny odlot.\n", getpid());
+    } else {
+        printf("[Samolot %d] Odlot po T1.\n", getpid());
     }
 
-    printf("Samolot %d: Odlot\n", getpid());
-    sleep(1);
-    printf("Samolot %d: Powrot\n", getpid());
+    sleep(2);
+    printf("[Samolot %d] Powrót\n", getpid());
     notify_dyspozytor(MSG_SAMOLOT_POWROT);
 
-    // Odpinamy pamięć dzieloną
     detach_shared_memory();
 }
 
 int main() {
-    while (1) { // Pętla ciągła
+    while (1) {
         simulate_flight_cycle();
-        // Opcjonalnie, dodaj krótki sen, aby uniknąć zbyt szybkiego pętlenia
         sleep(1);
     }
     return 0;
-} 
+}
