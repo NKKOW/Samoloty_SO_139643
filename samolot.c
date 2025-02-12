@@ -21,13 +21,17 @@ volatile sig_atomic_t early_depart = 0;
 static int shm_id = -1;
 static SharedData* shm_ptr = NULL;
 
+// Parametry samolotu
+static int g_myPlaneIndex = 0;
+static int g_myPlaneMd    = 10;
+static int g_myPlaneP     = 25;
+static int g_myPlaneTi    = 5;
+
 void* stairs_thread_func(void* arg) {
     (void)arg;
     while (1) {
         pthread_mutex_lock(&mutex);
-        int finished = (licznik_pasazer == N)  // N=liczba pasażerów na ten samolot
-                    || !keep_running
-                    || (capacityNormal == 0 && capacityVip == 0);
+        int finished = (!keep_running) || (licznik_pasazer >= g_myPlaneP);
         pthread_mutex_unlock(&mutex);
 
         if (finished) {
@@ -35,7 +39,7 @@ void* stairs_thread_func(void* arg) {
         }
         sleep(1);
     }
-    printf("[Samolot %d][Schody] -> koniec wątku.\n", getpid());
+    printf("[Samolot %d][Schody] -> koniec wątku (planeIndex=%d).\n", getpid(), g_myPlaneIndex);
     return NULL;
 }
 
@@ -122,8 +126,9 @@ void notify_dyspozytor(rodzaj_wiadomosc msg_type) {
     }
 }
 
-void simulate_flight_cycle() {
-    printf("[Samolot %d] Start cyklu\n", getpid());
+void simulate_flight_cycle(int planeIndex, int myPlaneMd, int myPlaneP, int myPlaneTi) {
+    printf("[Samolot %d] Start cyklu (planeIndex=%d, Md=%d, P=%d, Ti=%d)\n",
+           getpid(), planeIndex, myPlaneMd, myPlaneP, myPlaneTi);
     ignore_sigint();
 
     struct sigaction sa_usr, sa_alarm, sa_tstp;
@@ -160,9 +165,10 @@ void simulate_flight_cycle() {
         exit(EXIT_FAILURE);
     }
 
+    // Wysyłamy prośbę o gate
     notify_dyspozytor(MSG_GATE_REQUEST);
 
-    // czekamy na przydział gate
+    // Czekamy na przydział gate
     wiadomosc_buf reply_msg;
     printf("[Samolot %d] czeka na gate...\n", getpid());
     if (msgrcv(msg_queue_id, &reply_msg, sizeof(wiadomosc_buf) - sizeof(long),
@@ -180,18 +186,29 @@ void simulate_flight_cycle() {
     pthread_t stairs_tid;
     pthread_create(&stairs_tid, NULL, stairs_thread_func, NULL);
 
-    // Alarm na T1 sek
+    // Alarm na T1 sek (maksymalny czas boardingu)
     alarm(T1);
 
-    // Mała pauza, żeby pasażerowie mieli czas wejść w kontrolę
-    sleep(5);
+    // Krótka pauza
+    sleep(2);
 
-    // Wysyłamy SIGUSR2 do całej grupy, by pasażerowie wystartowali wchodzenie
+    // Wysyłamy SIGUSR2 do naszej grupy procesów (pasażerów), by wystartowali wchodzenie
     printf("[Samolot %d] -> Start boardingu: SIGUSR2 do grupy.\n", getpid());
     kill(0, SIGUSR2);
 
-    // Czekamy do upłynięcia T1
-    sleep(T1 + 2);
+    // Czekamy do upłynięcia T1 lub sygnału wczesnego odlotu
+    while (keep_running) {
+        sleep(1);
+        pthread_mutex_lock(&mutex);
+        if (licznik_pasazer >= myPlaneP) {
+            // Osiągnięto maksymalną liczbę pasażerów
+            pthread_mutex_unlock(&mutex);
+            printf("[Samolot %d] Osiągnięto pojemność samolotu (%d). Kończymy boarding.\n",
+                   getpid(), myPlaneP);
+            break;
+        }
+        pthread_mutex_unlock(&mutex);
+    }
 
     // Koniec boardingu
     pthread_mutex_lock(&mutex);
@@ -201,20 +218,18 @@ void simulate_flight_cycle() {
 
     pthread_join(stairs_tid, NULL);
 
-    // Podsumowanie (liczba pasażerów, którzy "weszli" w tym samolocie)
-    // Tu w oryginale bywała logika "boarded = K - capacityNormal" itp.,
-    // ale teraz K jest pojemnością schodów, a N to pasażerowie na samolot.
-    // Uproszczenie: załóżmy, że boarded to "licznik_pasazer" (ci co dotarli).
+    // Podsumowanie (liczba pasażerów, którzy "weszli")
+    // zakładamy, że 'licznik_pasazer' to wszyscy, którzy nie zostali odrzuceni
     pthread_mutex_lock(&shm_ptr->shm_mutex);
-    int boarded_here = licznik_pasazer;  
+    int boarded_here = (licznik_pasazer > myPlaneP) ? myPlaneP : licznik_pasazer;
     shm_ptr->total_boarded  += boarded_here;
-    // Również odrzuconych = N - boarded_here (przyjmując, że wszyscy z N próbowali)
-    int rejected_here = (N - boarded_here);
+    // Zakładamy, że wystartowało count = myPlaneP pasażerów, a "rejected" to ci, co nie dotarli
+    int rejected_here = myPlaneP - boarded_here;
     if (rejected_here < 0) rejected_here = 0;
     shm_ptr->total_rejected += rejected_here;
     pthread_mutex_unlock(&shm_ptr->shm_mutex);
 
-    printf("[Samolot %d] Boarding zakończony. Wsiadło=%d, Odrzuconych=%d.\n",
+    printf("[Samolot %d] Boarding zakończony. Weszło=%d, Odrzuconych=%d.\n",
            getpid(), boarded_here, rejected_here);
 
     wiadomosc_buf done_msg;
@@ -233,20 +248,32 @@ void simulate_flight_cycle() {
     if (early_depart) {
         printf("[Samolot %d] Wczesny odlot.\n", getpid());
     } else {
-        printf("[Samolot %d] Odlot po T1.\n", getpid());
+        printf("[Samolot %d] Odlot po T1 lub zapełnieniu.\n", getpid());
     }
 
+    // Symulacja lotu (dowolna)
     sleep(2);
+    printf("[Samolot %d] Ląduję u celu, wracam... (czas powrotu %d sek)\n", getpid(), myPlaneTi);
+    sleep(myPlaneTi);
+
     printf("[Samolot %d] Powrót\n", getpid());
     notify_dyspozytor(MSG_SAMOLOT_POWROT);
 
     detach_shared_memory();
 }
 
-int main() {
-    while (1) {
-        simulate_flight_cycle();
-        sleep(1);
+int main(int argc, char* argv[]) {
+    // Oczekujemy 4 parametrów: planeIndex, planeMd, planeP, planeTi
+    if (argc < 5) {
+        fprintf(stderr, "Użycie: %s <planeIndex> <Md> <P> <Ti>\n", argv[0]);
+        exit(1);
     }
+    g_myPlaneIndex = atoi(argv[1]);
+    g_myPlaneMd    = atoi(argv[2]);
+    g_myPlaneP     = atoi(argv[3]);
+    g_myPlaneTi    = atoi(argv[4]);
+
+    simulate_flight_cycle(g_myPlaneIndex, g_myPlaneMd, g_myPlaneP, g_myPlaneTi);
+    sleep(1);
     return 0;
 }

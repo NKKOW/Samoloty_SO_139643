@@ -1,8 +1,10 @@
 #ifndef DYSPOZYTOR_H
 #define DYSPOZYTOR_H
 
-pid_t create_passenger(int passenger_id, pid_t plane_pid);
-void create_passengers(int count, pid_t plane_pid);
+#include <sys/types.h>
+
+pid_t create_passenger(int passenger_id, pid_t plane_pid, int planeMd);
+void create_passengers(int count, pid_t plane_pid, int planeMd);
 
 void remove_existing_message_queue();
 void initialize_message_queue();

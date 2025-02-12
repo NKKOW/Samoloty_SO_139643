@@ -1,5 +1,3 @@
-// (Nie zmieniono)
-
 #ifndef PASAZER_H
 #define PASAZER_H
 

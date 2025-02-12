@@ -42,7 +42,7 @@ static void initialize_queues() {
 
 // W celach pokazowych tworzymy FIFO, by logować przejścia przez kontrolę
 static const char* KONTROLA_FIFO = "kontrola_fifo_REG";
-static const char* KONTROLA_FIFO_VIP    = "kontrola_fifo_vip";
+static const char* KONTROLA_FIFO_VIP = "kontrola_fifo_vip";
 
 // Funkcja pomocnicza: zapis do FIFO
 static void log_to_fifo(const char* path, const char* msg) {
@@ -59,15 +59,14 @@ static void log_to_fifo(const char* path, const char* msg) {
         write(fd, msg, strlen(msg));
         close(fd);
     } else {
-        //logowanie opcjonalne
-        
+        // logowanie opcjonalne
     }
 }
 
 // Inicjalizacja kolejki
 void init_queue(PassengerQueue* queue) {
     queue->front = NULL;
-    queue->rear = NULL;
+    queue->rear  = NULL;
     pthread_mutex_init(&queue->mutex, NULL);
 }
 
@@ -82,10 +81,10 @@ void enqueue_passenger(PassengerQueue* queue, PassengerNode* node) {
     node->next = NULL;
     if (queue->rear == NULL) {
         queue->front = node;
-        queue->rear = node;
+        queue->rear  = node;
     } else {
         queue->rear->next = node;
-        queue->rear = node;
+        queue->rear       = node;
     }
     pthread_mutex_unlock(&queue->mutex);
 }
@@ -107,11 +106,11 @@ PassengerNode* dequeue_passenger(PassengerQueue* queue) {
 // Znajdź i usuń pasażera o określonej płci z kolejki
 PassengerNode* find_and_remove_passenger(PassengerQueue* queue, char plec) {
     pthread_mutex_lock(&queue->mutex);
-    PassengerNode* prev = NULL;
+    PassengerNode* prev    = NULL;
     PassengerNode* current = queue->front;
 
     while (current != NULL) {
-        if (current->plec == plec && !current->has_been_skipped) { // Sprawdzenie, czy nie został już przepuszczony
+        if (current->plec == plec && !current->has_been_skipped) {
             // Usuń z kolejki
             if (prev == NULL) {
                 // Pierwszy element
@@ -128,7 +127,7 @@ PassengerNode* find_and_remove_passenger(PassengerQueue* queue, char plec) {
             pthread_mutex_unlock(&queue->mutex);
             return current;
         }
-        prev = current;
+        prev    = current;
         current = current->next;
     }
 
@@ -144,16 +143,17 @@ void kontrola_bezpieczenstwa(long pasazer_id, char plec)
 
     // Stworzenie nowego węzła pasażera
     PassengerNode* node = (PassengerNode*)malloc(sizeof(PassengerNode));
-    node->pasazer_id = pasazer_id;
-    node->plec = plec;
-    node->skip_count = 0;
-    node->has_been_skipped = false; // Inicjalizacja
+    node->pasazer_id        = pasazer_id;
+    node->plec              = plec;
+    node->skip_count        = 0;
+    node->has_been_skipped  = false; 
     pthread_cond_init(&node->cond, NULL);
     node->next = NULL;
 
     // Dodanie pasażera do kolejki
     enqueue_passenger(&passengerQueue, node);
-    printf("[K][PID=%d] Pasażer %ld dodany do kolejki NORMAL (płeć=%c)\n", airplane_pid, pasazer_id, plec);
+    printf("[K][PID=%d] Pasażer %ld dodany do kolejki NORMAL (płeć=%c)\n",
+           airplane_pid, pasazer_id, plec);
 
     pthread_mutex_lock(&stanowiskoMutex);
 
@@ -164,8 +164,10 @@ void kontrola_bezpieczenstwa(long pasazer_id, char plec)
             int wolneStanowisko = -1;
             for (int i = 0; i < 3; i++) {
                 if (stanowiska[i].occupied < 2) {
+                    // Albo wolne, albo ta sama płeć
                     if (stanowiska[i].occupied == 0 ||
-                        stanowiska[i].plec == plec) {
+                        stanowiska[i].plec == plec)
+                    {
                         wolneStanowisko = i;
                         break;
                     }
@@ -186,7 +188,9 @@ void kontrola_bezpieczenstwa(long pasazer_id, char plec)
 
                 // Log do FIFO (zwykłe)
                 char buf[128];
-                snprintf(buf, sizeof(buf), "Pasażer %ld (płeć=%c) -> stanowisko %d [NORMAL]\n", pasazer_id, plec, wolneStanowisko);
+                snprintf(buf, sizeof(buf),
+                         "Pasażer %ld (płeć=%c) -> stanowisko %d [NORMAL]\n",
+                         pasazer_id, plec, wolneStanowisko);
                 log_to_fifo(KONTROLA_FIFO, buf);
 
                 // Symulacja kontroli
@@ -207,12 +211,14 @@ void kontrola_bezpieczenstwa(long pasazer_id, char plec)
                     // Zwiększamy licznik pasażerów i sygnalizujemy
                     pthread_mutex_lock(&mutex);
                     licznik_pasazer++;
-                    if (licznik_pasazer == N || (capacityNormal == 0 && capacityVip == 0)) {
+                    // ---> USUNIĘTO odwołanie do N
+                    if ((capacityNormal == 0 && capacityVip == 0)) {
                         pthread_cond_signal(&samolotCond);
                     }
                     pthread_mutex_unlock(&mutex);
 
-                    printf("[K][PID=%d] Pasażer %ld odrzucony w kontroli NORMAL (przedmiot zabroniony)\n", airplane_pid, pasazer_id);
+                    printf("[K][PID=%d] Pasażer %ld odrzucony w kontroli NORMAL (przedmiot zabroniony)\n",
+                           airplane_pid, pasazer_id);
                     pthread_cond_destroy(&node->cond);
                     free(node);
                     return;
@@ -233,9 +239,10 @@ void kontrola_bezpieczenstwa(long pasazer_id, char plec)
                 pthread_mutex_unlock(&stanowiskoMutex);
                 break;
             }
+
         } else {
             // Pasażer nie jest na początku kolejki, sprawdzenie możliwości przepuszczenia
-            // Dodanie logiki przepuszczania kobiet przed mężczyznami
+            // (np. logika "kobiety przed mężczyznami")
 
             PassengerNode* target = find_and_remove_passenger(&passengerQueue, 'K');
             if (target && target != node) {
@@ -251,7 +258,8 @@ void kontrola_bezpieczenstwa(long pasazer_id, char plec)
                     pthread_cond_wait(&stanowiskoCond, &stanowiskoMutex);
                 } else {
                     // Przekroczono maksymalną liczbę przepuszczeń
-                    printf("[K][PID=%d] Pasażer %ld przekroczył limit przepuszczeń. Czeka na wolne stanowisko (NORMAL)\n",
+                    printf("[K][PID=%d] Pasażer %ld przekroczył limit przepuszczeń. "
+                           "Czeka na wolne stanowisko (NORMAL)\n",
                            airplane_pid, pasazer_id);
                     pthread_cond_wait(&stanowiskoCond, &stanowiskoMutex);
                     // Resetujemy skip_count po zwolnieniu stanowiska
@@ -274,16 +282,17 @@ void kontrola_bezpieczenstwa_vip(long pasazer_id, char plec)
 
     // Stworzenie nowego węzła pasażera VIP
     PassengerNode* node = (PassengerNode*)malloc(sizeof(PassengerNode));
-    node->pasazer_id = pasazer_id;
-    node->plec = plec;
-    node->skip_count = 0;
-    node->has_been_skipped = false; // Inicjalizacja
+    node->pasazer_id       = pasazer_id;
+    node->plec             = plec;
+    node->skip_count       = 0;
+    node->has_been_skipped = false;
     pthread_cond_init(&node->cond, NULL);
     node->next = NULL;
 
     // Dodanie pasażera do kolejki VIP
     enqueue_passenger(&vipPassengerQueue, node);
-    printf("[K][PID=%d] Pasażer VIP %ld dodany do kolejki VIP (płeć=%c)\n", airplane_pid, pasazer_id, plec);
+    printf("[K][PID=%d] Pasażer VIP %ld dodany do kolejki VIP (płeć=%c)\n",
+           airplane_pid, pasazer_id, plec);
 
     pthread_mutex_lock(&vipStanowiskoMutex);
 
@@ -295,7 +304,8 @@ void kontrola_bezpieczenstwa_vip(long pasazer_id, char plec)
             for (int i = 0; i < 3; i++) {
                 if (vipStanowiska[i].occupied < 2) {
                     if (vipStanowiska[i].occupied == 0 ||
-                        vipStanowiska[i].plec == plec) {
+                        vipStanowiska[i].plec == plec)
+                    {
                         wolneStanowisko = i;
                         break;
                     }
@@ -339,7 +349,8 @@ void kontrola_bezpieczenstwa_vip(long pasazer_id, char plec)
                     // Zwiększamy licznik pasażerów i sygnalizujemy
                     pthread_mutex_lock(&mutex);
                     licznik_pasazer++;
-                    if (licznik_pasazer == N || (capacityNormal == 0 && capacityVip == 0)) {
+                    // ---> USUNIĘTO odwołanie do N
+                    if ((capacityNormal == 0 && capacityVip == 0)) {
                         pthread_cond_signal(&samolotCond);
                     }
                     pthread_mutex_unlock(&mutex);
@@ -366,9 +377,10 @@ void kontrola_bezpieczenstwa_vip(long pasazer_id, char plec)
                 pthread_mutex_unlock(&vipStanowiskoMutex);
                 break;
             }
+
         } else {
             // Pasażer VIP nie jest na początku kolejki, sprawdzenie możliwości przepuszczenia
-            // Dodanie logiki przepuszczania kobiet przed mężczyznami
+            // (np. przepuszczanie kobiet przed mężczyznami)
 
             PassengerNode* target = find_and_remove_passenger(&vipPassengerQueue, 'K');
             if (target && target != node) {
@@ -378,7 +390,7 @@ void kontrola_bezpieczenstwa_vip(long pasazer_id, char plec)
                        airplane_pid, pasazer_id, target->pasazer_id);
                 pthread_cond_signal(&target->cond);
             } else {
-                // Brak kobiety do przepuszczenia lub pasażer jest już na początku
+                // Brak kobiety do przepuszczenia lub pasażer już na czele
                 if (node->skip_count < MAX_SKIP) {
                     node->skip_count++;
                     printf("[K][PID=%d] Pasażer VIP %ld przepuszcza %d osobę/osoby z kolejki (VIP)\n",
@@ -386,7 +398,8 @@ void kontrola_bezpieczenstwa_vip(long pasazer_id, char plec)
                     pthread_cond_wait(&vipStanowiskoCond, &vipStanowiskoMutex);
                 } else {
                     // Przekroczono maksymalną liczbę przepuszczeń VIP
-                    printf("[K][PID=%d] Pasażer VIP %ld przekroczył limit przepuszczeń. Czeka na wolne stanowisko (VIP)\n",
+                    printf("[K][PID=%d] Pasażer VIP %ld przekroczył limit przepuszczeń. "
+                           "Czeka na wolne stanowisko (VIP)\n",
                            airplane_pid, pasazer_id);
                     pthread_cond_wait(&vipStanowiskoCond, &vipStanowiskoMutex);
                     // Resetujemy skip_count po zwolnieniu stanowiska

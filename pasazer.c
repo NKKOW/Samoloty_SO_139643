@@ -38,30 +38,31 @@ void* kontrola_thread_func(void* arg) {
 }
 
 int bagaz_waga() {
-    return (rand() % 13) + 1;
+    return (rand() % 13) + 1; // 1..13
 }
 
 int main(int argc, char** argv)
 {
-    if (argc < 3) {
-        fprintf(stderr, "Użycie: %s <pasazer_id> <plane_pid>\n", argv[0]);
+    if (argc < 4) {
+        fprintf(stderr, "Użycie: %s <pasazer_id> <plane_pid> <planeMd>\n", argv[0]);
         exit(1);
     }
     long pasazerNum = atol(argv[1]);
-    plane_pid = atol(argv[2]);
+    plane_pid       = atol(argv[2]);
+    int planeMd     = atoi(argv[3]); // rzeczywisty limit bagażu dla samolotu
 
     srand(time(NULL) ^ getpid());
 
-    printf("[P] PID=%d -> Pasażer %ld, samolot PID=%ld\n",
-           getpid(), pasazerNum, (long)plane_pid);
+    printf("[P] PID=%d -> Pasażer %ld, samolot PID=%ld, limitMd=%d\n",
+           getpid(), pasazerNum, (long)plane_pid, planeMd);
 
     // Odprawa bagażu
     int waga = bagaz_waga();
-    printf("[P][PID=%d] Pasażer %ld -> Odprawa bagażu, waga=%d\n",
-           getpid(), pasazerNum, waga);
+    printf("[P][PID=%d] Pasażer %ld -> Odprawa bagażu, waga=%d (limit=%d)\n",
+           getpid(), pasazerNum, waga, planeMd);
     sleep(rand()%2 + 1);
 
-    if (waga > M) {
+    if (waga > planeMd) {
         printf("[P][PID=%d] Pasażer %ld ODRZUCONY (bagaż za ciężki)\n",
                getpid(), pasazerNum);
         exit(0);
@@ -97,6 +98,11 @@ int main(int argc, char** argv)
     sleep(1);
     printf("[P][PID=%d] Pasażer %ld: Dotarłem do samolotu (koniec).\n",
            getpid(), pasazerNum);
+
+    // Zwiększamy globalny licznik (licznik_pasazer) – normalnie:
+    pthread_mutex_lock(&mutex);
+    licznik_pasazer++;
+    pthread_mutex_unlock(&mutex);
 
     return 0;
 }
