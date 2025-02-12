@@ -6,7 +6,8 @@
 #include <pthread.h>
 #include <signal.h>
 #include <string.h>
-
+#include <sys/ipc.h>
+#include <sys/shm.h>
 #include "global.h"
 #include "pasazer.h"
 #include "kontrola.h"
@@ -20,7 +21,6 @@ typedef struct {
 static volatile sig_atomic_t canGoToStairs = 0;
 static pid_t plane_pid = 0;
 
-// Sygnał z samolotu -> start wchodzenia
 static void hol_signal_handler(int sig) {
     if (sig == SIGUSR2) {
         canGoToStairs = 1;
@@ -38,25 +38,24 @@ void* kontrola_thread_func(void* arg) {
 }
 
 int bagaz_waga() {
-    return (rand() % 13) + 1; // 1..13
+    return (rand() % 13) + 1;
 }
 
-int main(int argc, char** argv)
-{
+int main(int argc, char** argv) {
     if (argc < 4) {
         fprintf(stderr, "Użycie: %s <pasazer_id> <plane_pid> <planeMd>\n", argv[0]);
         exit(1);
     }
+
     long pasazerNum = atol(argv[1]);
-    plane_pid       = atol(argv[2]);
-    int planeMd     = atoi(argv[3]); // rzeczywisty limit bagażu dla samolotu
+    plane_pid = atol(argv[2]);
+    int planeMd = atoi(argv[3]);
 
     srand(time(NULL) ^ getpid());
 
     printf("[P] PID=%d -> Pasażer %ld, samolot PID=%ld, limitMd=%d\n",
            getpid(), pasazerNum, (long)plane_pid, planeMd);
 
-    // Odprawa bagażu
     int waga = bagaz_waga();
     printf("[P][PID=%d] Pasażer %ld -> Odprawa bagażu, waga=%d (limit=%d)\n",
            getpid(), pasazerNum, waga, planeMd);
@@ -69,7 +68,6 @@ int main(int argc, char** argv)
     }
     printf("[P][PID=%d] Pasażer %ld: Bagaż OK\n", getpid(), pasazerNum);
 
-    // Kontrola bezpieczeństwa
     KontrolaArgs args;
     args.pasazerNum = pasazerNum;
     args.isVIP = ((rand()%100) < VIP_PERCENT) ? 1 : 0;
@@ -82,11 +80,13 @@ int main(int argc, char** argv)
     }
     pthread_join(tid, NULL);
 
-    // Hol - czekamy na SIGUSR2
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = hol_signal_handler;
     sigaction(SIGUSR2, &sa, NULL);
+
+    printf("[HOL][PID=%d] Pasażer %ld: Czekam w holu na sygnał SIGUSR2...\n",
+           getpid(), pasazerNum);
 
     while (!canGoToStairs) {
         pause();
@@ -94,15 +94,31 @@ int main(int argc, char** argv)
     printf("[HOL][PID=%d] Pasażer %ld: Otrzymano SIGUSR2, ruszam na schody.\n",
            getpid(), pasazerNum);
 
-    // Schody -> finalnie do samolotu
     sleep(1);
     printf("[P][PID=%d] Pasażer %ld: Dotarłem do samolotu (koniec).\n",
            getpid(), pasazerNum);
 
-    // Zwiększamy globalny licznik (licznik_pasazer) – normalnie:
-    pthread_mutex_lock(&mutex);
-    licznik_pasazer++;
-    pthread_mutex_unlock(&mutex);
+    key_t key = ftok(MSG_QUEUE_PATH, 'S');
+    if (key == -1) {
+        perror("Pasazer: ftok");
+        exit(EXIT_FAILURE);
+    }
+    int shm_id = shmget(key, sizeof(SharedData), 0666);
+    if (shm_id < 0) {
+        perror("Pasazer: shmget");
+        exit(EXIT_FAILURE);
+    }
+    SharedData* shm_ptr = (SharedData*) shmat(shm_id, NULL, 0);
+    if (shm_ptr == (void*) -1) {
+        perror("Pasazer: shmat");
+        exit(EXIT_FAILURE);
+    }
+
+    pthread_mutex_lock(&shm_ptr->shm_mutex);
+    shm_ptr->licznik_pasazer++;
+    pthread_mutex_unlock(&shm_ptr->shm_mutex);
+
+    shmdt(shm_ptr);
 
     return 0;
 }

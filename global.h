@@ -10,22 +10,24 @@
 #include <pthread.h>
 #include <stdatomic.h>
 
+// Sygnały kontrolne
 #define SIGUSR_DEPART   SIGUSR1
 #define SIGUSR_NO_BOARD SIGUSR2
 
-// Zmiana nazwy na MAX_PLANES dla czytelności
+// Maksymalna liczba samolotów
 #define MAX_SAMOLOT 10
 
-// Każdy samolot będzie miał faktyczną pojemność P, np.:
+// Pojemność jednego samolotu
 #define PLANE_CAPACITY 25
 
-// Stała globalna T1 to czas (w sekundach) po którym samolot może odlecieć
-#define T1  20  
+// Czas oczekiwania T1 (sekundy)
+#define T1  20
 
+// Informacje o kolejce komunikatów
 #define MSG_QUEUE_PATH "msgqueue.key"
 #define MSG_QUEUE_PROJ 'M'
 
-// Rodzaje komunikatów
+// Typy komunikatów
 typedef enum {
     MSG_SAMOLOT_GOTOWY = 1,
     MSG_SAMOLOT_POWROT,
@@ -34,7 +36,7 @@ typedef enum {
     MSG_BOARDING_FINISHED
 } rodzaj_wiadomosc;
 
-// Struktura komunikatu w kolejce
+// Struktura wiadomości
 typedef struct {
     long mtype;
     rodzaj_wiadomosc rodzaj;
@@ -42,64 +44,57 @@ typedef struct {
     int gate_id;
 } wiadomosc_buf;
 
-// Definicje do obsługi pasażerów
-// Uwaga: Każdy samolot może mieć inny limit bagażu, stąd M w starym sensie
-// będzie jedynie stałą domyślną / nieużywaną. Realny limit – dynamicznie.
+// Domyślny limit bagażu (niewykorzystywany)
 #define DEFAULT_M 10
 
 // Pojemność schodów
 #define K  15
 
-// Procent VIP-ów
+// Procent pasażerów VIP
 #define VIP_PERCENT 20
 
-// Ile razy pasażer może przepuścić innych
+// Maksymalna liczba przepuszczeń w kolejce
 #define MAX_SKIP 3
 
-// Flaga globalna do zatrzymania boardingu (sygnał2)
+// Flaga zatrzymania boardingu
 extern volatile sig_atomic_t stopBoarding;
 
-// Struktura pamięci współdzielonej
+// Struktura danych współdzielonych – teraz zawiera też licznik pasażer
 typedef struct {
     pthread_mutex_t shm_mutex;
     int total_boarded;
     int total_rejected;
+    int licznik_pasazer;  // Licznik pasażerów, wspólny dla wszystkich procesów
 } SharedData;
 
-// Semafory i inne zmienne globalne
+// Deklaracje semaforów i mutexów
 extern sem_t stairsSemNormal;
 extern sem_t stairsSemVip;
-
 extern pthread_mutex_t mutex;
 extern pthread_cond_t samolotCond;
 
-// Te wartości dot. schodów podzielonych na część normalną i VIP
+// Pojemności dwóch części schodów
 extern int capacityNormal;
 extern int capacityVip;
 
-// Licznik wszystkich pasażerów (dla uproszczenia; w oryginale można rozdzielić)
-extern int licznik_pasazer;
-
-// Semafor do wagi bagażu (jeśli potrzebny)
+// Semafor dla wagi bagażu
 extern sem_t bagaz_wagaSem;
 
-// Pasażerowie na schodach
+// Liczba pasażerów na schodach
 extern int passengers_on_stairs;
 extern pthread_mutex_t stairsMutex;
 extern pthread_cond_t stairsCond;
 
-// Zmienne do Dyspozytora
+// Zmienne używane w Dyspozytorze
 extern int total_passengers_assigned;
 extern int planes_returned;
 
-// --------------------------
 // Struktura opisująca samolot
-// --------------------------
 typedef struct {
-    int planeIndex;         // Indeks samolotu (0..MAX_PLANES-1)
-    int baggageLimitMd;     // Limit bagażu podręcznego w tym samolocie
-    int capacityP;          // Rzeczywista pojemność samolotu
-    int returnTimeTi;       // Czas "powrotu" samolotu (symulacja)
+    int planeIndex;
+    int baggageLimitMd;
+    int capacityP;
+    int returnTimeTi;
 } PlaneInfo;
 
 #endif

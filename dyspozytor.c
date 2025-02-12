@@ -13,7 +13,6 @@
 #include <time.h>
 #include <sys/shm.h>
 #include <sys/ipc.h>
-
 #include "global.h"
 #include "dyspozytor.h"
 #include "gate.h"
@@ -74,7 +73,6 @@ void sigint_handler(int sig) {
 void sigtstp_handler_dispatcher(int sig) {
     printf("Dyspozytor: Otrzymano SIGTSTP (%d). Wysyłam SIGTSTP do wszystkich samolotów.\n", sig);
     send_signal_to_airplanes(SIGTSTP);
-
     struct sigaction sa_default;
     sa_default.sa_handler = SIG_DFL;
     sigemptyset(&sa_default.sa_mask);
@@ -142,11 +140,13 @@ int setup_dispatcher_socket() {
         return -1;
     }
     dispatcher_socket_fd = sock;
+
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port   = htons(12345);
     addr.sin_addr.s_addr = INADDR_ANY;
+
     if (bind(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
         perror("Dyspozytor: bind()");
         close(sock);
@@ -178,11 +178,13 @@ pid_t create_airplane(int planeIndex, int baggageLimit) {
         char argMd[32];
         char argCapacity[32];
         char argTi[32];
+
         snprintf(argIndex, sizeof(argIndex), "%d", planeIndex);
         snprintf(argMd, sizeof(argMd), "%d", baggageLimit);
         snprintf(argCapacity, sizeof(argCapacity), "%d", PLANE_CAPACITY);
         int ti = (rand() % 5) + 5;
         snprintf(argTi, sizeof(argTi), "%d", ti);
+
         execl("./samolot", "samolot", argIndex, argMd, argCapacity, argTi, NULL);
         perror("Dyspozytor: błąd execl samolot");
         exit(EXIT_FAILURE);
@@ -199,9 +201,11 @@ pid_t create_passenger(int passenger_id, pid_t plane_pid, int planeMd) {
         char arg_id[32];
         char arg_plane[32];
         char arg_planeMd[32];
+
         snprintf(arg_id, sizeof(arg_id), "%d", passenger_id);
         snprintf(arg_plane, sizeof(arg_plane), "%d", plane_pid);
         snprintf(arg_planeMd, sizeof(arg_planeMd), "%d", planeMd);
+
         execl("./pasazer", "pasazer", arg_id, arg_plane, arg_planeMd, NULL);
         perror("Dyspozytor: błąd execl pasazer");
         _exit(1);
@@ -225,13 +229,13 @@ void try_assign_gates_to_waiting_planes() {
         }
         pid_t plane_pid = queue_dequeue(&waiting_planes);
         gate_assign(gate_index, plane_pid);
+
         wiadomosc_buf reply_msg;
         reply_msg.mtype = plane_pid;
         reply_msg.rodzaj = MSG_GATE_ASSIGN;
         reply_msg.samolot_pid = 0;
         reply_msg.gate_id = gates[gate_index].gate_id;
-        if (msgsnd(msg_queue_id, &reply_msg,
-                   sizeof(wiadomosc_buf) - sizeof(long), 0) == -1) {
+        if (msgsnd(msg_queue_id, &reply_msg, sizeof(wiadomosc_buf) - sizeof(long), 0) == -1) {
             perror("Dyspozytor: błąd msgsnd MSG_GATE_ASSIGN");
         } else {
             printf("Dyspozytor: Przydzielono gate %d samolotowi PID %d.\n",
@@ -246,9 +250,7 @@ void handle_messages() {
         printf("Dyspozytor: Oczekiwanie na komunikat.\n");
         ssize_t recv_result;
         while (1) {
-            recv_result = msgrcv(msg_queue_id, &msg,
-                                 sizeof(wiadomosc_buf) - sizeof(long),
-                                 0, 0);
+            recv_result = msgrcv(msg_queue_id, &msg, sizeof(wiadomosc_buf) - sizeof(long), 0, 0);
             if (recv_result == -1) {
                 if (errno == EINTR) {
                     if (!keep_running)
@@ -262,8 +264,9 @@ void handle_messages() {
         }
         if (!keep_running || recv_result == -1)
             break;
-        printf("Dyspozytor: Otrzymano rodzaj %d od PID %d\n",
-               msg.rodzaj, msg.samolot_pid);
+
+        printf("Dyspozytor: Otrzymano rodzaj %d od PID %d\n", msg.rodzaj, msg.samolot_pid);
+
         switch (msg.rodzaj) {
             case MSG_GATE_REQUEST:
                 queue_enqueue(&waiting_planes, msg.samolot_pid);
@@ -275,10 +278,12 @@ void handle_messages() {
                 planes_returned++;
                 printf("Dyspozytor: Samolot %d wrócił. (planes_returned=%d/%d)\n",
                        msg.samolot_pid, planes_returned, airplane_count);
+
                 pthread_mutex_lock(&shm_ptr->shm_mutex);
                 int boarded = shm_ptr->total_boarded;
                 int rejected = shm_ptr->total_rejected;
                 pthread_mutex_unlock(&shm_ptr->shm_mutex);
+
                 if (planes_returned == airplane_count &&
                     (boarded + rejected) == total_passengers_assigned)
                 {
@@ -288,12 +293,10 @@ void handle_messages() {
                 }
                 break;
             case MSG_BOARDING_FINISHED:
-                printf("Dyspozytor: Boarding zakończony dla samolotu PID %d.\n",
-                       msg.samolot_pid);
+                printf("Dyspozytor: Boarding zakończony dla samolotu PID %d.\n", msg.samolot_pid);
                 break;
             default:
-                printf("Dyspozytor: Otrzymano nieznany rodzaj komunikatu %d.\n",
-                       msg.rodzaj);
+                printf("Dyspozytor: Otrzymano nieznany rodzaj komunikatu %d.\n", msg.rodzaj);
                 break;
         }
     }
@@ -330,8 +333,9 @@ static void init_shared_memory_dyspozytor() {
         exit(EXIT_FAILURE);
     }
     pthread_mutex_lock(&shm_ptr->shm_mutex);
-    shm_ptr->total_boarded  = 0;
+    shm_ptr->total_boarded = 0;
     shm_ptr->total_rejected = 0;
+    shm_ptr->licznik_pasazer = 0;
     pthread_mutex_unlock(&shm_ptr->shm_mutex);
 }
 
@@ -394,6 +398,7 @@ int main() {
         planeInfos[i].baggageLimitMd  = (rand() % 5) + 8;
         planeInfos[i].capacityP       = PLANE_CAPACITY;
         planeInfos[i].returnTimeTi    = (rand() % 5) + 5;
+
         pid_t pid = create_airplane(i, planeInfos[i].baggageLimitMd);
         if (pid > 0) {
             airplane_pids[airplane_count++] = pid;
@@ -404,16 +409,19 @@ int main() {
         }
     }
 
-    for (int i = 0; i < airplane_count; i++) {
-        pid_t pid = airplane_pids[i];
-        int md    = planeInfos[i].baggageLimitMd;
-        create_passengers(PLANE_CAPACITY, pid, md);
-        total_passengers_assigned += PLANE_CAPACITY;
+    int total_passengers_to_create = 125;
+    for (int i = 0; i < total_passengers_to_create; i++) {
+        int randomIndex      = rand() % airplane_count;
+        pid_t chosenPlanePID = airplane_pids[randomIndex];
+        int chosenPlaneMd    = planeInfos[randomIndex].baggageLimitMd;
+
+        create_passenger(i + 1, chosenPlanePID, chosenPlaneMd);
+        total_passengers_assigned++;
     }
 
     handle_messages();
 
-    printf("Dyspozytor: Kończymy pracę. Zabijam samoloty, jeśli jeszcze żyją.\n");
+    printf("Dyspozytor: Kończymy pracę.\n");
     send_signal_to_airplanes(SIGKILL);
 
     for (int i = 0; i < airplane_count; i++) {
