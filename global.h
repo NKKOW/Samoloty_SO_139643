@@ -13,6 +13,7 @@
 #define SIGUSR_NO_BOARD SIGUSR2
 
 #define MAX_SAMOLOT 10
+#define MAX_PASAZER (MAX_SAMOLOT * N) 
 #define T1  20 // W sekundach
 
 #define MSG_QUEUE_PATH "msgqueue.key"
@@ -35,9 +36,9 @@ typedef struct {
 
 // Definicje do obsługi pasażerów
 
-#define M 10 
-#define N 50  
-#define K  15 
+#define M 10 // masa bagażu
+#define N 50  //liczba pasażerów w samolocie
+#define K  15 // schody
 #define VIP_PERCENT 20
 #define MAX_SKIP 3
 
@@ -65,5 +66,9 @@ extern sem_t bagaz_wagaSem;
 extern int passengers_on_stairs; 
 extern pthread_mutex_t stairsMutex; 
 extern pthread_cond_t stairsCond; 
+
+// Zmienne do Dyspozytora
+extern int total_passengers_assigned;
+extern int planes_returned;
 
 #endif

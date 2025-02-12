@@ -14,7 +14,6 @@
 #include "global.h"
 #include "samolot.h"
 
-// *** Zmienne globalne ***
 int msg_queue_id;
 volatile sig_atomic_t keep_running = 1;
 volatile sig_atomic_t early_depart = 0;
@@ -22,15 +21,13 @@ volatile sig_atomic_t early_depart = 0;
 static int shm_id = -1;
 static SharedData* shm_ptr = NULL;
 
-// [REMOVED] - Brak passenger_pids[] i forka pasażerów.
-
 void* stairs_thread_func(void* arg) {
     (void)arg;
     while (1) {
         pthread_mutex_lock(&mutex);
-        int finished = (licznik_pasazer == N) ||
-                       (capacityNormal == 0 && capacityVip == 0) ||
-                       !keep_running;
+        int finished = (licznik_pasazer == N)  // N=liczba pasażerów na ten samolot
+                    || !keep_running
+                    || (capacityNormal == 0 && capacityVip == 0);
         pthread_mutex_unlock(&mutex);
 
         if (finished) {
@@ -38,11 +35,10 @@ void* stairs_thread_func(void* arg) {
         }
         sleep(1);
     }
-    printf("[Samolot][Schody] -> koniec wątku.\n");
+    printf("[Samolot %d][Schody] -> koniec wątku.\n", getpid());
     return NULL;
 }
 
-// Handler SIGALRM
 void sigalrm_handler(int sig) {
     (void)sig;
     printf("[Samolot %d] Czas T1 upłynął, koniec boardingu.\n", getpid());
@@ -53,7 +49,6 @@ void sigalrm_handler(int sig) {
     pthread_cond_broadcast(&stairsCond);
 }
 
-// Handler SIGTSTP
 void sigtstp_handler(int sig) {
     printf("[Samolot %d] SIGTSTP (%d).\n", getpid(), sig);
     struct sigaction sa_default;
@@ -64,7 +59,6 @@ void sigtstp_handler(int sig) {
     raise(SIGTSTP);
 }
 
-// Handler SIGUSR1/SIGUSR2
 void sigusr_handler(int sig) {
     if (sig == SIGUSR1) {
         printf("[Samolot %d] Wczesny odlot (SIGUSR1)\n", getpid());
@@ -121,18 +115,17 @@ void notify_dyspozytor(rodzaj_wiadomosc msg_type) {
     msg.rodzaj = msg_type;
     msg.samolot_pid = getpid();
     msg.gate_id = -1;
+
     if (msgsnd(msg_queue_id, &msg, sizeof(wiadomosc_buf) - sizeof(long), 0) == -1) {
         perror("Samolot: msgsnd");
         exit(EXIT_FAILURE);
     }
 }
 
-// [CHANGED] – Samolot NIE tworzy pasażerów.
 void simulate_flight_cycle() {
     printf("[Samolot %d] Start cyklu\n", getpid());
     ignore_sigint();
 
-    // Sygnalizacja
     struct sigaction sa_usr, sa_alarm, sa_tstp;
     memset(&sa_usr, 0, sizeof(sa_usr));
     sa_usr.sa_handler = sigusr_handler;
@@ -156,7 +149,6 @@ void simulate_flight_cycle() {
     pthread_mutex_init(&mutex, NULL);
     pthread_cond_init(&samolotCond, NULL);
 
-    // Kolejka komunikatów
     key_t msg_key = ftok(MSG_QUEUE_PATH, MSG_QUEUE_PROJ);
     if (msg_key == -1) {
         perror("Samolot: ftok");
@@ -169,6 +161,8 @@ void simulate_flight_cycle() {
     }
 
     notify_dyspozytor(MSG_GATE_REQUEST);
+
+    // czekamy na przydział gate
     wiadomosc_buf reply_msg;
     printf("[Samolot %d] czeka na gate...\n", getpid());
     if (msgrcv(msg_queue_id, &reply_msg, sizeof(wiadomosc_buf) - sizeof(long),
@@ -182,27 +176,24 @@ void simulate_flight_cycle() {
     }
     printf("[Samolot %d] Otrzymano gate %d.\n", getpid(), reply_msg.gate_id);
 
-    // [CHANGED ADDED] – tworzymy wątek schodów (ale NIE tworzymy pasażerów).
+    // Wątek schodów
     pthread_t stairs_tid;
     pthread_create(&stairs_tid, NULL, stairs_thread_func, NULL);
 
-    // Czas T1
+    // Alarm na T1 sek
     alarm(T1);
 
-    // [CHANGED ADDED] – Czekamy np. 5 sekund, aby pasażerowie (uruchomieni niezależnie) 
-    //   mieli czas przyjść, przejść kontrolę i wejść do Holu.
+    // Mała pauza, żeby pasażerowie mieli czas wejść w kontrolę
     sleep(5);
 
-    // [CHANGED ADDED] – Wysyłamy SIGUSR2 do "wszystkich pasażerów" (np. do grupy),
-    //   bo nie mamy tablicy z ich PIDami. 
+    // Wysyłamy SIGUSR2 do całej grupy, by pasażerowie wystartowali wchodzenie
     printf("[Samolot %d] -> Start boardingu: SIGUSR2 do grupy.\n", getpid());
-    kill(0, SIGUSR2); // UWAGA: w realnym systemie lepiej adresować tylko do właściwych pasażerów
+    kill(0, SIGUSR2);
 
-    // [CHANGED ADDED] – Nie czekamy na pasażerów (brak waitpid, bo to nie nasze childy).
-    //   Po T1 sygnalizujemy koniec (alarm).
+    // Czekamy do upłynięcia T1
     sleep(T1 + 2);
 
-    // Zamykanie wątku schodów
+    // Koniec boardingu
     pthread_mutex_lock(&mutex);
     keep_running = 0;
     pthread_cond_broadcast(&samolotCond);
@@ -210,16 +201,21 @@ void simulate_flight_cycle() {
 
     pthread_join(stairs_tid, NULL);
 
-    // Podsumowanie
+    // Podsumowanie (liczba pasażerów, którzy "weszli" w tym samolocie)
+    // Tu w oryginale bywała logika "boarded = K - capacityNormal" itp.,
+    // ale teraz K jest pojemnością schodów, a N to pasażerowie na samolot.
+    // Uproszczenie: załóżmy, że boarded to "licznik_pasazer" (ci co dotarli).
     pthread_mutex_lock(&shm_ptr->shm_mutex);
-    int boardedNormal = K - capacityNormal;
-    int boardedVip = K - capacityVip;
-    int boarded = boardedNormal + boardedVip;
-    shm_ptr->total_boarded += boarded;
-    shm_ptr->total_rejected += (N - boarded);
+    int boarded_here = licznik_pasazer;  
+    shm_ptr->total_boarded  += boarded_here;
+    // Również odrzuconych = N - boarded_here (przyjmując, że wszyscy z N próbowali)
+    int rejected_here = (N - boarded_here);
+    if (rejected_here < 0) rejected_here = 0;
+    shm_ptr->total_rejected += rejected_here;
     pthread_mutex_unlock(&shm_ptr->shm_mutex);
 
-    printf("[Samolot %d] Boarding zakończony. Wsiadło=%d.\n", getpid(), boarded);
+    printf("[Samolot %d] Boarding zakończony. Wsiadło=%d, Odrzuconych=%d.\n",
+           getpid(), boarded_here, rejected_here);
 
     wiadomosc_buf done_msg;
     done_msg.mtype = 1;

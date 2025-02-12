@@ -17,18 +17,16 @@ typedef struct {
     char plec;
 } KontrolaArgs;
 
-// Sygnalizacja w Holu
 static volatile sig_atomic_t canGoToStairs = 0;
-static pid_t plane_pid = 0; // PID samolotu, przekazywany w argv
+static pid_t plane_pid = 0;
 
-// Handler sygnału z samolotu (SIGUSR2)
+// Sygnał z samolotu -> start wchodzenia
 static void hol_signal_handler(int sig) {
     if (sig == SIGUSR2) {
         canGoToStairs = 1;
     }
 }
 
-// Wątek kontroli bezpieczeństwa
 void* kontrola_thread_func(void* arg) {
     KontrolaArgs* data = (KontrolaArgs*)arg;
     if (data->isVIP) {
@@ -39,7 +37,6 @@ void* kontrola_thread_func(void* arg) {
     return NULL;
 }
 
-// Pomocnicze – waga bagażu
 int bagaz_waga() {
     return (rand() % 13) + 1;
 }
@@ -58,10 +55,7 @@ int main(int argc, char** argv)
     printf("[P] PID=%d -> Pasażer %ld, samolot PID=%ld\n",
            getpid(), pasazerNum, (long)plane_pid);
 
-    // Etap: Kupno biletu – de facto zapamiętanie plane_pid
-    // (już mamy w zmiennej plane_pid)
-
-    // Etap: Odprawa bagażu
+    // Odprawa bagażu
     int waga = bagaz_waga();
     printf("[P][PID=%d] Pasażer %ld -> Odprawa bagażu, waga=%d\n",
            getpid(), pasazerNum, waga);
@@ -74,11 +68,11 @@ int main(int argc, char** argv)
     }
     printf("[P][PID=%d] Pasażer %ld: Bagaż OK\n", getpid(), pasazerNum);
 
-    // Etap: Kontrola bezpieczeństwa (wątek)
+    // Kontrola bezpieczeństwa
     KontrolaArgs args;
     args.pasazerNum = pasazerNum;
     args.isVIP = ((rand()%100) < VIP_PERCENT) ? 1 : 0;
-    args.plec = ((rand()%2)==0) ? 'K' : 'M';
+    args.plec = ((rand()%2) == 0) ? 'K' : 'M';
 
     pthread_t tid;
     if (pthread_create(&tid, NULL, kontrola_thread_func, &args) != 0) {
@@ -87,22 +81,19 @@ int main(int argc, char** argv)
     }
     pthread_join(tid, NULL);
 
-    // Po kontroli bezpieczeństwa -> HOL
-    printf("[HOL][PID=%d] Pasażer %ld -> czeka na SIGUSR2 (plane_pid=%ld)\n",
-           getpid(), pasazerNum, (long)plane_pid);
-
+    // Hol - czekamy na SIGUSR2
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = hol_signal_handler;
     sigaction(SIGUSR2, &sa, NULL);
 
     while (!canGoToStairs) {
-        pause(); 
+        pause();
     }
     printf("[HOL][PID=%d] Pasażer %ld: Otrzymano SIGUSR2, ruszam na schody.\n",
            getpid(), pasazerNum);
 
-    // Etap: Schody
+    // Schody -> finalnie do samolotu
     sleep(1);
     printf("[P][PID=%d] Pasażer %ld: Dotarłem do samolotu (koniec).\n",
            getpid(), pasazerNum);
