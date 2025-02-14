@@ -101,13 +101,15 @@ int main(int argc, char** argv) {
         exit(0);
     }
 
-    /* Polling flagi otwarcia gate'a */
+    /* Oczekiwanie w Holu na otwarcie gate'a przez samolot */
     while (1) {
         pthread_mutex_lock(&shm_ptr->shm_mutex);
         int gateStatus = shm_ptr->gate_open[plane_index];
         pthread_mutex_unlock(&shm_ptr->shm_mutex);
         if (gateStatus == 1)
             break;
+        printf("[P][PID=%d] Pasażer %ld: Czekam w Holu na samolot (gate jeszcze zamknięty)...\n", 
+               getpid(), pasazerNum);
         sleep(1);
     }
     printf("[P][PID=%d] Pasażer %ld: Gate otwarty, ruszam na boarding.\n", getpid(), pasazerNum);
@@ -116,7 +118,7 @@ int main(int argc, char** argv) {
     shm_ptr->boarded[plane_index]++;
     pthread_mutex_unlock(&shm_ptr->shm_mutex);
 
-    /* Używamy anonimowego semafora umieszczonego w pamięci współdzielonej – sygnalizujemy wejście pasażera */
+    /* Sygnalizacja wejścia pasażera poprzez anonimowy semafor */
     sem_post(&shm_ptr->boarding_sem[plane_index]);
 
     shmdt(shm_ptr);

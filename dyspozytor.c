@@ -244,9 +244,10 @@ void try_assign_gates_to_waiting_planes() {
         gate_assign(gate_index, plane_pid, capacity);
 
         wiadomosc_buf reply_msg;
-        reply_msg.mtype = plane_pid;
+        reply_msg.mtype = plane_pid;  
         reply_msg.rodzaj = MSG_GATE_ASSIGN;
-        reply_msg.samolot_pid = 0;
+        // Ustawiamy poprawnie pole samolot_pid
+        reply_msg.samolot_pid = plane_pid;
         reply_msg.gate_id = gates[gate_index].gate_id;
         if (msgsnd(msg_queue_id, &reply_msg, sizeof(wiadomosc_buf) - sizeof(long), 0) == -1) {
             perror("Dyspozytor: błąd msgsnd MSG_GATE_ASSIGN");
@@ -262,8 +263,9 @@ void handle_messages() {
     while (keep_running) {
         printf("Dyspozytor: Oczekiwanie na komunikat.\n");
         ssize_t recv_result;
+        // Odbieramy tylko komunikaty wysyłane przez procesy (mtype=1)
         while (1) {
-            recv_result = msgrcv(msg_queue_id, &msg, sizeof(wiadomosc_buf) - sizeof(long), 0, 0);
+            recv_result = msgrcv(msg_queue_id, &msg, sizeof(wiadomosc_buf) - sizeof(long), 1, 0);
             if (recv_result == -1) {
                 if (errno == EINTR) {
                     if (!keep_running)
@@ -415,9 +417,27 @@ int main() {
         planeInfos[i].baggageLimitMd  = (rand() % 5) + 8;
         planeInfos[i].capacityP       = PLANE_CAPACITY;
         planeInfos[i].returnTimeTi    = (rand() % 5) + 5;
+    }
+    airplane_count = num_airplanes_to_create;
+
+    int total_passengers_to_create = 100;
+    for (int i = 0; i < total_passengers_to_create; i++) {
+        int randomIndex = rand() % airplane_count;
+        int chosenPlaneMd = planeInfos[randomIndex].baggageLimitMd;
+        pthread_mutex_lock(&shm_ptr->shm_mutex);
+        shm_ptr->expected[randomIndex] += 1;
+        pthread_mutex_unlock(&shm_ptr->shm_mutex);
+        // Pasażerów tworzymy z plane_pid=0 (bo samoloty będą uruchomione później)
+        create_passenger(i + 1, 0, chosenPlaneMd, randomIndex);
+        total_passengers_assigned++;
+    }
+
+    sleep(5); // Opóźnienie dla uruchomienia pasażerów
+
+    for (int i = 0; i < num_airplanes_to_create; i++) {
         pid_t pid = create_airplane(i, planeInfos[i].baggageLimitMd);
         if (pid > 0) {
-            airplane_pids[airplane_count++] = pid;
+            airplane_pids[i] = pid;
             printf("Dyspozytor: Utworzono samolot PID %d (planeIndex=%d, Md=%d)\n",
                    pid, i, planeInfos[i].baggageLimitMd);
         } else {
@@ -425,21 +445,8 @@ int main() {
         }
     }
 
-    int total_passengers_to_create = 100;
-    for (int i = 0; i < total_passengers_to_create; i++) {
-        int randomIndex = rand() % airplane_count;
-        pid_t chosenPlanePID = airplane_pids[randomIndex];
-        int chosenPlaneMd = planeInfos[randomIndex].baggageLimitMd;
-        pthread_mutex_lock(&shm_ptr->shm_mutex);
-        shm_ptr->expected[randomIndex] += 1;
-        pthread_mutex_unlock(&shm_ptr->shm_mutex);
-        create_passenger(i + 1, chosenPlanePID, chosenPlaneMd, randomIndex);
-        total_passengers_assigned++;
-    }
-
     handle_messages();
 
-    // Zabij wszystkie procesy pasażerów
     for (int i = 0; i < passenger_count; i++) {
         if (passenger_pids[i] > 0) {
             kill(passenger_pids[i], SIGKILL);

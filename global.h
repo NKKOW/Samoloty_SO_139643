@@ -61,6 +61,7 @@ extern volatile sig_atomic_t stopBoarding;
 
 // Struktura danych współdzielonych – rozszerzona o anonimowe semafory boarding'u
 typedef struct {
+    // Uwaga: Mutex musi być inicjalizowany z atrybutem PTHREAD_PROCESS_SHARED w procesie inicjującym.
     pthread_mutex_t shm_mutex;
     int total_boarded;
     int total_rejected;
