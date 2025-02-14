@@ -18,6 +18,7 @@ void gate_init(int num_gates) {
         gates[i].gate_id = i + 1;
         gates[i].is_occupied = false;
         gates[i].assigned_samoloty_pid = -1;
+        gates[i].capacity = 0;
     }
     max_gates = num_gates;
     printf("Gate: Zainicjalizowano %d.\n", max_gates);
@@ -33,11 +34,12 @@ int find_free_gate() {
     return -1;
 }
 
-// Przydziela bramkę do samolotu
-void gate_assign(int gate_index, pid_t plane_pid) {
+// Przydziela bramkę do samolotu – ustawia też capacity
+void gate_assign(int gate_index, pid_t plane_pid, int capacity) {
     gates[gate_index].is_occupied = true;
     gates[gate_index].assigned_samoloty_pid = plane_pid;
-    printf("Gate: Samolot %d -> gate %d.\n",plane_pid, gates[gate_index].gate_id);
+    gates[gate_index].capacity = capacity;
+    printf("Gate: Samolot %d -> gate %d z pojemnością %d.\n", plane_pid, gates[gate_index].gate_id, capacity);
 }
 
 // Zwalnia bramkę na podstawie PID samolotu
@@ -46,7 +48,8 @@ void gate_release_by_plane(pid_t plane_pid) {
         if (gates[i].assigned_samoloty_pid == plane_pid) {
             gates[i].is_occupied = false;
             gates[i].assigned_samoloty_pid = -1;
-            printf("Gate %d: Zwolniony (samolot %d).\n",gates[i].gate_id, plane_pid);
+            gates[i].capacity = 0;
+            printf("Gate %d: Zwolniony (samolot %d).\n", gates[i].gate_id, plane_pid);
             return;
         }
     }

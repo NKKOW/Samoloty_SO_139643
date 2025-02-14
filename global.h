@@ -14,7 +14,7 @@
 #define SIGUSR_DEPART   SIGUSR1
 #define SIGUSR_NO_BOARD SIGUSR2
 
-// Maksymalna liczba samolotów
+// Maksymalna liczba samolotów (i lotów)
 #define MAX_SAMOLOT 10
 
 // Pojemność jednego samolotu
@@ -59,12 +59,16 @@ typedef struct {
 // Flaga zatrzymania boardingu
 extern volatile sig_atomic_t stopBoarding;
 
-// Struktura danych współdzielonych – teraz zawiera też licznik pasażer
+// Struktura danych współdzielonych – rozszerzona o anonimowe semafory boarding'u
 typedef struct {
     pthread_mutex_t shm_mutex;
     int total_boarded;
     int total_rejected;
-    int licznik_pasazer;  // Licznik pasażerów, wspólny dla wszystkich procesów
+    int licznik_pasazer;  // globalny licznik (opcjonalnie)
+    int gate_open[MAX_SAMOLOT]; // 0 – gate zamknięty, 1 – otwarty (dla danego lotu)
+    int boarded[MAX_SAMOLOT];   // liczba pasażerów, którzy wsiedli do samolotu
+    int expected[MAX_SAMOLOT];  // liczba oczekiwanych pasażerów dla danego lotu
+    sem_t boarding_sem[MAX_SAMOLOT]; // anonimowe semafory do synchronizacji boardingu
 } SharedData;
 
 // Deklaracje semaforów i mutexów

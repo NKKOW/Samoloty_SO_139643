@@ -1,4 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
+#include "global.h"
+#include "samolot.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -11,8 +13,6 @@
 #include <time.h>
 #include <sys/wait.h>
 #include <errno.h>
-#include "global.h"
-#include "samolot.h"
 
 int msg_queue_id;
 volatile sig_atomic_t keep_running = 1;
@@ -32,9 +32,8 @@ void* stairs_thread_func(void* arg) {
         pthread_mutex_lock(&mutex);
         int finished = (!keep_running);
         pthread_mutex_unlock(&mutex);
-        if (finished) {
+        if (finished)
             break;
-        }
         sleep(1);
     }
     printf("[Samolot %d][Schody] -> koniec wątku (planeIndex=%d).\n", getpid(), g_myPlaneIndex);
@@ -97,7 +96,7 @@ static void init_shared_memory() {
         perror("Samolot: shmget");
         exit(EXIT_FAILURE);
     }
-    shm_ptr = (SharedData*) shmat(shm_id, NULL, 0);
+    shm_ptr = (SharedData*)shmat(shm_id, NULL, 0);
     if (shm_ptr == (void*)-1) {
         perror("Samolot: shmat");
         exit(EXIT_FAILURE);
@@ -168,9 +167,9 @@ void simulate_flight_cycle(int planeIndex, int myPlaneMd, int myPlaneP, int myPl
     while (1) {
         ssize_t r = msgrcv(msg_queue_id, &reply_msg, sizeof(wiadomosc_buf) - sizeof(long), getpid(), 0);
         if (r == -1) {
-            if (errno == EINTR) {
+            if (errno == EINTR)
                 continue;
-            } else {
+            else {
                 perror("Samolot: msgrcv gate");
                 return;
             }
@@ -183,25 +182,17 @@ void simulate_flight_cycle(int planeIndex, int myPlaneMd, int myPlaneP, int myPl
     }
     printf("[Samolot %d] Otrzymano gate %d.\n", getpid(), reply_msg.gate_id);
 
-    pthread_t stairs_tid;
-    pthread_create(&stairs_tid, NULL, stairs_thread_func, NULL);
+    // Ustawienie flagi otwarcia gate'a dla danego lotu
+    pthread_mutex_lock(&shm_ptr->shm_mutex);
+    shm_ptr->gate_open[planeIndex] = 1;
+    pthread_mutex_unlock(&shm_ptr->shm_mutex);
 
-    alarm(T1);
-    sleep(2);
-
-    printf("[Samolot %d] -> Start boardingu: SIGUSR2 do grupy.\n", getpid());
-    kill(0, SIGUSR2);
-
-    while (keep_running) {
-        sleep(1);
-        pthread_mutex_lock(&shm_ptr->shm_mutex);
-        int current_passengers = shm_ptr->licznik_pasazer;
-        pthread_mutex_unlock(&shm_ptr->shm_mutex);
-        if (current_passengers >= myPlaneP) {
-            printf("[Samolot %d] Osiągnięto pojemność samolotu (%d). Kończymy boarding.\n",
-                   getpid(), myPlaneP);
-            break;
-        }
+    printf("[Samolot %d] Gate otwarty. Boarding rozpoczęty.\n", getpid());
+    int boarded_count = 0;
+    while (boarded_count < myPlaneP && keep_running) {
+        sem_wait(&shm_ptr->boarding_sem[planeIndex]);
+        boarded_count++;
+        printf("[Samolot %d] Pasażer wszedł na pokład: count = %d\n", getpid(), boarded_count);
     }
 
     pthread_mutex_lock(&mutex);
@@ -209,18 +200,17 @@ void simulate_flight_cycle(int planeIndex, int myPlaneMd, int myPlaneP, int myPl
     pthread_cond_broadcast(&samolotCond);
     pthread_mutex_unlock(&mutex);
 
-    pthread_join(stairs_tid, NULL);
-
     pthread_mutex_lock(&shm_ptr->shm_mutex);
-    int boarded_here = (shm_ptr->licznik_pasazer > myPlaneP) ? myPlaneP : shm_ptr->licznik_pasazer;
-    shm_ptr->total_boarded += boarded_here;
-    int rejected_here = myPlaneP - boarded_here;
-    if (rejected_here < 0) rejected_here = 0;
+    int final_boarded = boarded_count;
+    int rejected_here = myPlaneP - final_boarded;
+    if (rejected_here < 0)
+        rejected_here = 0;
+    shm_ptr->total_boarded += final_boarded;
     shm_ptr->total_rejected += rejected_here;
     pthread_mutex_unlock(&shm_ptr->shm_mutex);
 
     printf("[Samolot %d] Boarding zakończony. Weszło=%d, Odrzuconych=%d.\n",
-           getpid(), boarded_here, rejected_here);
+           getpid(), final_boarded, rejected_here);
 
     {
         wiadomosc_buf done_msg;
@@ -237,11 +227,10 @@ void simulate_flight_cycle(int planeIndex, int myPlaneMd, int myPlaneP, int myPl
     pthread_mutex_destroy(&mutex);
     pthread_cond_destroy(&samolotCond);
 
-    if (early_depart) {
+    if (early_depart)
         printf("[Samolot %d] Wczesny odlot.\n", getpid());
-    } else {
+    else
         printf("[Samolot %d] Odlot po T1 lub zapełnieniu.\n", getpid());
-    }
 
     sleep(2);
     printf("[Samolot %d] Ląduję u celu, wracam... (czas powrotu %d sek)\n",

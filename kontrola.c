@@ -6,7 +6,6 @@
 #include <errno.h>
 #include <pthread.h>
 #include <sys/stat.h>
-#include <sys/stat.h>
 #include "kontrola.h"
 #include "pasazer.h"
 #include "global.h"
@@ -117,7 +116,7 @@ PassengerNode* find_and_remove_passenger(PassengerQueue* queue, char plec) {
     return NULL;
 }
 
-void kontrola_bezpieczenstwa(long pasazer_id, char plec) {
+int kontrola_bezpieczenstwa(long pasazer_id, char plec) {
     pid_t airplane_pid = getpid();
     PassengerNode* node = (PassengerNode*)malloc(sizeof(PassengerNode));
     node->pasazer_id = pasazer_id;
@@ -172,7 +171,7 @@ void kontrola_bezpieczenstwa(long pasazer_id, char plec) {
                     printf("[K][PID=%d] Pasażer %ld odrzucony (przedmiot).\n", airplane_pid, pasazer_id);
                     pthread_cond_destroy(&node->cond);
                     free(node);
-                    return;
+                    return 0;
                 }
                 pthread_mutex_lock(&stanowiskoMutex);
                 stanowiska[wolneStanowisko].occupied--;
@@ -205,9 +204,10 @@ void kontrola_bezpieczenstwa(long pasazer_id, char plec) {
     pthread_mutex_unlock(&stanowiskoMutex);
     pthread_cond_destroy(&node->cond);
     free(node);
+    return 1;
 }
 
-void kontrola_bezpieczenstwa_vip(long pasazer_id, char plec) {
+int kontrola_bezpieczenstwa_vip(long pasazer_id, char plec) {
     pid_t airplane_pid = getpid();
     PassengerNode* node = (PassengerNode*)malloc(sizeof(PassengerNode));
     node->pasazer_id = pasazer_id;
@@ -262,7 +262,7 @@ void kontrola_bezpieczenstwa_vip(long pasazer_id, char plec) {
                     printf("[K][PID=%d] Pasażer VIP %ld odrzucony (przedmiot).\n", airplane_pid, pasazer_id);
                     pthread_cond_destroy(&node->cond);
                     free(node);
-                    return;
+                    return 0;
                 }
                 pthread_mutex_lock(&vipStanowiskoMutex);
                 vipStanowiska[wolneStanowisko].occupied--;
@@ -295,4 +295,5 @@ void kontrola_bezpieczenstwa_vip(long pasazer_id, char plec) {
     pthread_mutex_unlock(&vipStanowiskoMutex);
     pthread_cond_destroy(&node->cond);
     free(node);
+    return 1;
 }

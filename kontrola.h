@@ -39,9 +39,9 @@ extern StanowiskoBezp vipStanowiska[3];
 extern pthread_mutex_t vipStanowiskoMutex;
 extern pthread_cond_t  vipStanowiskoCond;
 
-// Funkcje kontroli
-void kontrola_bezpieczenstwa(long pasazer_id, char plec);
-void kontrola_bezpieczenstwa_vip(long pasazer_id, char plec);
+// Funkcje kontroli – zmienione na zwracanie int
+int kontrola_bezpieczenstwa(long pasazer_id, char plec);
+int kontrola_bezpieczenstwa_vip(long pasazer_id, char plec);
 
 // Zarządzanie kolejkami
 void enqueue_passenger(PassengerQueue* queue, PassengerNode* node);
