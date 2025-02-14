@@ -205,8 +205,8 @@ pid_t create_passenger(int passenger_id, pid_t plane_pid, int planeMd, int plane
         perror("Dyspozytor: błąd execl pasazer");
         _exit(1);
     }
-    printf("Dyspozytor: Uruchomiono pasażera PID %d (id=%d, plane_pid=%d, planeMd=%d, planeIndex=%d)\n",
-           pid, passenger_id, plane_pid, planeMd, planeIndex);
+    // Uproszczony log: tylko id i PID
+    printf("Dyspozytor: Pasażer id=%d, PID=%d\n", passenger_id, pid);
     if (passenger_count < MAX_PASSENGERS) {
         passenger_pids[passenger_count++] = pid;
     }
@@ -246,7 +246,6 @@ void try_assign_gates_to_waiting_planes() {
         wiadomosc_buf reply_msg;
         reply_msg.mtype = plane_pid;  
         reply_msg.rodzaj = MSG_GATE_ASSIGN;
-        // Ustawiamy poprawnie pole samolot_pid
         reply_msg.samolot_pid = plane_pid;
         reply_msg.gate_id = gates[gate_index].gate_id;
         if (msgsnd(msg_queue_id, &reply_msg, sizeof(wiadomosc_buf) - sizeof(long), 0) == -1) {
@@ -263,7 +262,7 @@ void handle_messages() {
     while (keep_running) {
         printf("Dyspozytor: Oczekiwanie na komunikat.\n");
         ssize_t recv_result;
-        // Odbieramy tylko komunikaty wysyłane przez procesy (mtype=1)
+        // Odbieramy tylko komunikaty o mtype=1
         while (1) {
             recv_result = msgrcv(msg_queue_id, &msg, sizeof(wiadomosc_buf) - sizeof(long), 1, 0);
             if (recv_result == -1) {
@@ -427,7 +426,7 @@ int main() {
         pthread_mutex_lock(&shm_ptr->shm_mutex);
         shm_ptr->expected[randomIndex] += 1;
         pthread_mutex_unlock(&shm_ptr->shm_mutex);
-        // Pasażerów tworzymy z plane_pid=0 (bo samoloty będą uruchomione później)
+        // Pasażerów tworzymy z plane_pid=0 (samoloty będą uruchomione później)
         create_passenger(i + 1, 0, chosenPlaneMd, randomIndex);
         total_passengers_assigned++;
     }

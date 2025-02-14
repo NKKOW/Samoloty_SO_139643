@@ -33,19 +33,20 @@ void* kontrola_thread_func(void* arg) {
         return (void*)(intptr_t)kontrola_bezpieczenstwa(data->pasazerNum, data->plec);
 }
 
+#define WAIT_TIMEOUT 20
+
 int main(int argc, char** argv) {
     if (argc < 5) {
         fprintf(stderr, "Użycie: %s <pasazer_id> <plane_pid> <planeMd> <plane_index>\n", argv[0]);
         exit(1);
     }
     long pasazerNum = atol(argv[1]);
-    pid_t plane_pid = atol(argv[2]);
+    /* Zmienna plane_pid usunięta, ponieważ nie jest wykorzystywana */
     int planeMd = atoi(argv[3]);
     int plane_index = atoi(argv[4]);
 
     srand(time(NULL) ^ getpid());
-    printf("[P] PID=%d -> Pasażer %ld, samolot PID=%ld, limitMd=%d, plane_index=%d\n",
-           getpid(), pasazerNum, (long)plane_pid, planeMd, plane_index);
+    printf("[P] PID=%d -> Pasażer %ld\n", getpid(), pasazerNum);
 
     /* Podłączenie do pamięci współdzielonej */
     key_t key = ftok(MSG_QUEUE_PATH, 'S');
@@ -69,7 +70,7 @@ int main(int argc, char** argv) {
            getpid(), pasazerNum, waga, planeMd);
     sleep(rand() % 2 + 1);
     if (waga > planeMd) {
-        printf("[P][PID=%d] Pasażer %ld ODRZUCONY (bagaż za ciężki)\n", getpid(), pasazerNum);
+        printf("[P][PID=%d] Pasażer %ld: Odrzucony (bagaż za ciężki)\n", getpid(), pasazerNum);
         pthread_mutex_lock(&shm_ptr->shm_mutex);
         shm_ptr->total_rejected++;
         pthread_mutex_unlock(&shm_ptr->shm_mutex);
@@ -86,7 +87,7 @@ int main(int argc, char** argv) {
 
     pthread_t tid;
     if (pthread_create(&tid, NULL, kontrola_thread_func, &args) != 0) {
-        perror("pthread_create");
+        perror("Pasazer: pthread_create");
         shmdt(shm_ptr);
         exit(1);
     }
@@ -101,19 +102,27 @@ int main(int argc, char** argv) {
         exit(0);
     }
 
-    /* Oczekiwanie w Holu na otwarcie gate'a przez samolot */
+    /* Oczekiwanie na otwarcie gate'a przez samolot */
+    int waited = 0;
     while (1) {
         pthread_mutex_lock(&shm_ptr->shm_mutex);
         int gateStatus = shm_ptr->gate_open[plane_index];
         pthread_mutex_unlock(&shm_ptr->shm_mutex);
         if (gateStatus == 1)
             break;
-        printf("[P][PID=%d] Pasażer %ld: Czekam w Holu na samolot (gate jeszcze zamknięty)...\n", 
-               getpid(), pasazerNum);
         sleep(1);
+        waited++;
+        if (waited >= WAIT_TIMEOUT) {
+            printf("[P][PID=%d] Pasażer %ld: Timeout oczekiwania – opuszczam boarding.\n", getpid(), pasazerNum);
+            pthread_mutex_lock(&shm_ptr->shm_mutex);
+            shm_ptr->total_rejected++;
+            pthread_mutex_unlock(&shm_ptr->shm_mutex);
+            shmdt(shm_ptr);
+            exit(0);
+        }
     }
-    printf("[P][PID=%d] Pasażer %ld: Gate otwarty, ruszam na boarding.\n", getpid(), pasazerNum);
 
+    printf("[P][PID=%d] Pasażer %ld: Gate otwarty, ruszam na boarding.\n", getpid(), pasazerNum);
     pthread_mutex_lock(&shm_ptr->shm_mutex);
     shm_ptr->boarded[plane_index]++;
     pthread_mutex_unlock(&shm_ptr->shm_mutex);
