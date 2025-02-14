@@ -41,7 +41,8 @@ int main(int argc, char** argv) {
         exit(1);
     }
     long pasazerNum = atol(argv[1]);
-    /* Zmienna plane_pid usunięta, ponieważ nie jest wykorzystywana */
+    /* Zmienna plane_pid nie jest używana – przekazujemy ją z dyspozytora,
+       więc tutaj pozostawiamy argument, ale nie przypisujemy do zmiennej */
     int planeMd = atoi(argv[3]);
     int plane_index = atoi(argv[4]);
 
